@@ -1,0 +1,236 @@
+---
+title: "Brain cancer visualise quality control"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/qc_metrics/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+
+library(SingleCellExperiment)
+library(tidyverse)
+library(scuttle)
+library(scater)
+library(platetools)
+library(patchwork)
+library(here)
+source(here::here("scripts/R/theme_publication.R"))
+theme_set(theme_Publication())
+```
+
+# TurboCapture-Seq Brain Cancer neurospheres
+
+## Recap
+
+These are the first experiments where I use version 2 chemistry. Read 2 is now the barcode and UMI Read 1 is the cDNA. This was done to avoid reading through the TSO on Ilumina read 1
+
+Test version 2 protocol with a biological appliation from Zac Moore of Brain Cancer lab [https://au-mynotebook.labarchives.com/share/Piper_Research_Project/MzEuMjAwMDAwMDAwMDAwMDAzfDE3MTc2NS8yNC9UcmVlTm9kZS8zMzczNDM0NjE1fDc5LjE5OTk5OTk5OTk5OTk5](ELN link)
+
+## Read SCE and extract col data
+
+This is the SCE object from single end umi
+
+```{r}
+sce <- readRDS(here::here(
+  "data/TIRE_brain_human/SCEs/", "brainCancer_basic.sce.rds"))
+
+tb <- as_tibble(colData(sce))
+
+tb$Species[is.na(tb$Cell_Line)] <- "None"
+tb$Cell_Line[is.na(tb$Cell_Line)] <- "None"
+```
+
+# Check orientation on plate map representation {.tabset}
+
+Orientation is correct when looking at library size and mouse counts.
+
+## Samples
+
+```{r plate_sample, fig.width=12,fig.height=6}
+p1 <- platetools::raw_map(data=tb$Cell_Line, 
+                     well=tb$Well, 
+                     plate=96) + scale_fill_Publication()
+
+p2 <- platetools::raw_map(data=log(tb$sum+1), 
+                     well=tb$Well, 
+                     plate=96) +
+  ggtitle("Library Size")
+
+
+p3 <- platetools::raw_map(data=tb$Day_Exposure, 
+                     well=tb$Well, 
+                     plate=96) + 
+  ggtitle("Days exposure to drug")
+
+p4 <- platetools::raw_map(data=tb$Storage, 
+                     well=tb$Well, 
+                     plate=96) + 
+  ggtitle("Storage conditions") + scale_fill_Publication()
+
+p1 + p2 + p3 + p4
+```
+
+## Conditions
+
+```{r plate_conditions, fig.width=12,fig.height=6}
+tb_fact <- tb 
+tb_fact$Day_Exposure <- as.factor(tb$Day_Exposure)
+tb_fact$Dose_M <- as.factor(tb$Dose_M)
+
+p1 <- platetools::raw_map(data=tb_fact$Species, 
+                     well=tb$Well, 
+                     plate=96) + 
+  scale_fill_discrete("Species")
+
+p2 <- platetools::raw_map(data=tb_fact$Day_Exposure, 
+                     well=tb$Well, 
+                     plate=96) +
+  scale_fill_discrete("Timepoint (days)")
+
+p3 <- platetools::raw_map(data=tb_fact$Dose_M, 
+                     well=tb$Well, 
+                     plate=96) + 
+  guides(fill=guide_legend(ncol=2)) +
+  scale_fill_discrete("Dose (M)")
+
+p4 <- platetools::raw_map(data=tb_fact$Drug, 
+                     well=tb$Well, 
+                     plate=96) + 
+  scale_fill_discrete("Drug")
+
+p1 + p4 + p3 + p2
+```
+
+# Quality control metrics by dose {.tabset}
+
+The metrics go as one would expect with dose and time treated
+
+## Library size
+
+```{r treat_lib}
+tb$Day_Exposure <- as_factor(tb$Day_Exposure)
+
+plt1 <- ggplot(tb,
+             aes(x = Dose_M, y= sum, colour=Day_Exposure)) + 
+  geom_point() +
+  ylab("Library Size (UMIs)") + 
+  xlab("TMZ (M)") +
+  scale_y_continuous(trans='log10') + scale_x_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "bl") +
+  scale_colour_brewer(palette = "Dark2")
+
+plt1
+```
+
+## Genes detected
+
+```{r treat_genes}
+plt2 <- ggplot(tb,
+             aes(x = Dose_M, y= detected, colour=Day_Exposure)) + 
+  geom_point() +
+  xlab("TMZ (M)") +
+  ylab("Genes detected") + 
+  scale_x_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "b") +
+  scale_colour_brewer(palette = "Dark2")
+
+plt2
+```
+
+## Mitochondrial percent
+
+```{r treat_mito}
+plt2 <- ggplot(tb,
+             aes(x = Dose_M, y= subsets_Mito_percent, colour=Day_Exposure)) + 
+  geom_point() +
+  xlab("TMZ (M)") +
+  ylab("Mitochondrial percent") + 
+  scale_x_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "b") +
+  scale_colour_brewer(palette = "Dark2")
+
+plt2
+```
+
+# Investigate storage conditions {.tabset}
+
+Evidence that storage at 4C is insufficient to freeze the biological effect of temozolomide on the library size. In general metrics are poorer for storage at 4C.
+
+```{r}
+storage <- tb %>% 
+  filter(Day_Exposure == 7) %>% 
+  filter(Dose_M != 0.0000001) %>% 
+  filter(Dose_M != 0.000001) %>% 
+  filter(Dose_M != 0.00000316) %>% 
+  filter(Dose_M != 0.000000316) %>% 
+  filter(Dose_M != 0.0000316)
+  
+storage %>% 
+  dplyr::count(Dose_M,Storage)
+```
+
+## Library size
+
+```{r storage_lib}
+plt1 <- ggplot(storage,
+             aes(x = Storage, y= sum, colour=Drug)) + 
+  geom_jitter(width = 0.1) + 
+  ylab("Library Size (UMIs)") + 
+  xlab("Storage") +
+  scale_y_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "l") +
+  scale_colour_brewer(palette = "Dark2")
+
+plt1
+```
+
+## Genes detected
+
+```{r storage_genes}
+plt2 <- ggplot(storage,
+             aes(x = Storage, y= detected, colour=Drug)) + 
+  geom_jitter(width = 0.1) + 
+  ylab("Genes detected") + 
+  xlab("Storage") +
+  scale_colour_brewer(palette = "Dark2")
+
+plt2
+```
+
+## Mitochondrial percent
+
+Further evidence that 4C storage does not inactivate Temozolomide effects.
+
+```{r storage_mito}
+plt3 <- ggplot(storage,
+             aes(x = Storage, y= subsets_Mito_percent, colour=Drug)) + 
+  geom_jitter(width = 0.1) + 
+  ylab("Mitochondrial %") + ylim(0,15) +
+  xlab("Storage") +
+  scale_colour_brewer(palette = "Dark2")
+
+plt3
+```
+ 
+### Session info
+```{r}
+sessionInfo()
+```

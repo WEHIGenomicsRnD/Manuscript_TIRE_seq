@@ -1,0 +1,288 @@
+---
+title: "T cell human clustering"
+description: "Show clustering of human T cellls"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      out.width="150%",
+                      fig.path='./figures/clustering/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+suppressPackageStartupMessages({
+  library(SingleCellExperiment)
+  library(tidyverse)
+  library(scuttle)
+  library(scran)
+  library(scater)
+  library(platetools)
+  library(patchwork)
+  library(knitr)
+  library(here)
+source(here::here("scripts/R/theme_publication.R"))
+theme_set(theme_Publication())
+})
+```
+
+# TIRE-seq T cell human clustering
+
+The aim of this notebook is to cluster the samples.
+
+## Recap
+
+I sequenced these samples with Prime-seq on extracted RNAs already. Results were not that great. Here reprocess the same samples with TIRE-seq for a head to head comparison.
+
+## Samples
+
+* Yasmin Nouri plates.
+* All wells have 10,000 cells in 50ul total volume.
+* Comprised of 25ul cells in media and 25ul 2x buffer TCL
+* The cell concentration is therefore 200 cells/uL.
+* So 20uL input will be 4000 cells.
+
+## Lab notes
+
+The processing went as planned. Full writeup available at [ELN link](https://au-mynotebook.labarchives.com/share/Daniel_RnD_Projects/NDkxLjQwMDAwMDAwMDAwMDAzfDY4MTk3LzM3OC9UcmVlTm9kZS8zMzc4NjI0NXwxMjQ3LjM5OTk5OTk5OTk5OTk=)
+
+# Read data
+
+This was generated in *1A_generateSCE-human*
+
+```{r read_sce}
+sce <- readRDS(here::here(
+   "data/TIRE_Tcell/SCEs/tcell_basic.sce.rds"
+))
+sce_orig <- sce
+
+tb <- as_tibble(colData(sce))
+```
+
+## Recap quality control
+
+This is explored more fully in notebook 1B. Here I recap only the important point.  
+Row H was largely a failure. This is donor 64, CD8 T cells.
+
+```{r library_text}
+plt1 <- ggplot(tb,
+             aes(x = Timepoint, y= sum, colour = Donor, label=Well)) + 
+  geom_text() +
+  ylab("UMIs") + 
+  xlab("Plate") +
+  scale_y_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "l") +
+  scale_colour_brewer(palette = "Dark2")
+
+plt1
+```
+
+Remove outliers. 13 samples are removed.  
+I won't use mitochondrial genes as a criteria here because the general increase in transcription upon stimulation.
+
+```{r outlier_detect}
+discarded <- perCellQCFilters(sce)
+
+colSums(as.data.frame(discarded))
+sce <- sce_orig[,!discarded$discard]
+discarded <- as_tibble(discarded)
+
+# Summarise how many cells left
+cell_drop_tb <- rbind(
+  cbind(length(colnames(sce_orig)), length(colnames(sce)))
+)
+
+colnames(cell_drop_tb) <- c("Before_Filter", "After_filter")
+cell_drop_tb
+```
+
+### Reads_UMIs after filter
+
+```{r reads_umis_after}
+tb <- as_tibble(colData(sce))
+
+plt8 <- ggplot(data=tb, aes(y=sum+1, x=detected, colour=Timepoint, label=Well)) +
+  geom_text(size=3) +
+  scale_colour_brewer(type="qualitative", palette = "Dark2") +
+  xlab("Genes") + ylab("UMIs") +
+  scale_y_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "l")
+
+plt8
+```
+
+### View highly expressed genes
+
+* TMSB10 seems like an non-specific immune gene
+* The other genes are pretty typical of RNA-Seq as highly expressed genes.
+
+```{r}
+plt1 <- plotHighestExprs(sce, n=10, colour_cells_by = "Timepoint") +
+  theme_Publication()
+
+plt1
+```
+
+Library size normalization and transformation
+
+```{r, eval=T}
+set.seed(666)
+
+lib.sf <- librarySizeFactors(sce)
+sce <- computeSumFactors(sce)
+sce <- logNormCounts(sce)
+
+```
+
+## Feature selection
+
+Select the top 1000 most variable genes.
+
+```{r eval=T}
+dec.sce <- modelGeneVar(sce)
+fit.sce <- metadata(dec.sce)
+hvg.sce.var <- getTopHVGs(dec.sce, n=1000)
+sce <- runPCA(sce, subset_row=hvg.sce.var, ncomponents=30)
+
+```
+
+Visulaise the fit
+
+```{r}
+tb <- as_tibble(cbind(fit.sce$mean, fit.sce$var))
+
+colnames(tb) <- c("Mean", "Variance")
+```
+
+## Visualise mean variance
+
+Technical variation is nice and low. Some clear genes above technical variation
+
+```{r tech_variation, fig.cap="The coloured line represents technical variation"}
+plt2 <- ggplot(tb, 
+             aes(x = Mean, y= Variance)) + 
+  geom_point(alpha = 0.2, size=0.5) + 
+  guides(colour = guide_legend(override.aes = list(size=2, alpha=1))) +
+  xlab("Mean of log-expression") + 
+  ylab("Variance of log-expression") +
+  scale_colour_brewer(type="qualitative", palette = "Dark2") +
+  geom_function(fun = fit.sce$trend, colour = "darkgreen") +
+  theme_Publication(base_size = 16)
+
+plt2
+```
+
+## PCA plots {.tabset}
+
+Principal component analysis is a linear dimension reduction so the distances are interpretable.  
+It preserves local differences so not as good at visualising non-linear differences.
+
+A PCA 1  and 2 of 38% and 16% is good for RNA-seq data.
+
+### Immune subset
+
+* Seems to be the major difference revealed by the PCA.
+* PCA 1 is the timepoint
+* PCA2 is less clear
+* Day 0 which is when the cells are thawed out
+
+A clear difference in CD4 vs CD8 that is greater than the donor effect.
+
+```{r subset}
+plt5 <- plotPCA(sce, colour_by="Timepoint", shape_by="Subset", point_size=2) + 
+  guides(colour=guide_legend(ncol=2)) +
+  theme_Publication(base_size=16)
+plt5
+```
+
+### Donor
+
+```{r timepoint}
+plt4 <- plotPCA(sce, colour_by="Timepoint", shape_by="Donor", point_size=2) + 
+  guides(colour=guide_legend(ncol=2)) +
+  theme_Publication(base_size=16)
+
+plt4
+```
+
+### Genes detected
+
+At timepoint 2 days post activation have the most detected genes.  
+This makes sense that the cells are most supercharged here.
+
+```{r genes}
+plt6 <- plotPCA(sce, colour_by="detected", shape_by="Receptor") + theme_Publication(base_size=18)
+plt6
+```
+
+### Variance explained
+
+Keep 14 PCs to focus on the biological variation.
+
+```{r}
+# Percentage of variance explained is tucked away in the attributes.
+percent.var <- attr(reducedDim(sce), "percentVar")
+
+plot(percent.var, xlab="PC", ylab="Variance explained (%)")
+```
+
+## UMAP {.tabset}
+
+UMAP is a non-linear dimension reduction and emphasises global structure. The distances between groups don't mean anything.
+You can say something about how tightly a group packs into a cluster.
+
+```{r}
+set.seed(100)
+sce <- runUMAP(sce, dimred = "PCA", n_dimred=14)
+```
+
+### Timepoint
+
+Very curious that day 1 and day 2 has the most dramatic differences and day 0 does not.
+
+In the PCA plots day 0 is more distinct.
+
+```{r umap_timepoint}
+plt10 <- plotReducedDim(sce, dimred="UMAP", colour_by="Timepoint",shape_by="Subset", point_size=2) +
+  guides(colour=guide_legend(ncol=2)) +
+  theme_Publication(base_size = 16)
+
+plt10
+```
+
+## Save data
+
+```{r}
+saveRDS(sce, here::here(
+  "data/TIRE_Tcell/SCEs/tcell_cluster.sce.rds"
+))
+```
+
+## Conclusion
+
+* Timepoint after stimulation is the major difference.
+* Minor differences with immune subset
+
+### Next steps
+
+Differential expression testing.
+
+### Session info
+```{r}
+sessionInfo()
+```

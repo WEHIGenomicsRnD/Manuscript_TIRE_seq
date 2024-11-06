@@ -1,0 +1,484 @@
+---
+title: "Basic DE analysis T cells CD4 vs CD8"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/de_subsets/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+suppressPackageStartupMessages({
+  library(SingleCellExperiment)
+  library(tidyverse)
+  library(scater)
+  library(edgeR)
+  library(pheatmap)
+  library(viridis)
+  library(ggrepel)
+  library(splines)
+  library(org.Hs.eg.db)
+  library(patchwork)
+  library(knitr)
+  library(here)
+  source(here::here("scripts/R/theme_publication.R"))
+  source(here::here("scripts/R/create_geneset_barchart.R"))
+theme_set(theme_Publication())
+})
+```
+
+Define heatmap function
+
+```{r}
+create_gene_heatmap <- function(de_results_df, dge_object, font_size = 12, num_genes = 20) {
+  # Subset the genes
+  top_genes <- de_results_df$Symbol[1:num_genes]
+  subset_matrix <- dge_object$logCPM[top_genes, colnames(dge_object$counts)]
+  
+  # Create annotation dataframe
+  sample_info <- dge_object$samples
+  annotation_df <- data.frame(
+    Donor = sample_info$Donor,
+    Subset = sample_info$Subset
+  )
+  rownames(annotation_df) <- colnames(subset_matrix)
+  
+  # Reorder gene expression matrix
+  ordered_samples <- order(sample_info$Subset, sample_info$Donor)
+  subset_matrix <- subset_matrix[, ordered_samples]
+  sample_info <- sample_info[ordered_samples, ]
+  
+  # Create the heatmap
+  heatmap <- pheatmap(subset_matrix,
+           scale = "row",
+           cluster_rows = FALSE,
+           cluster_cols = FALSE,
+           color = viridis(50),
+           show_colnames = FALSE,
+           annotation_col = annotation_df,
+           fontsize = font_size,
+           silent = FALSE)
+}
+```
+
+# TIRE-seq T cell human basic DE subsets
+
+The aim of this notebook is to identify genes that differ between CD4 and CD8 subsets over time. This will be a basic DE analysis informed by the time course centric analysis conducted in notebook 3A splines timecourse.
+
+## Recap
+
+I sequenced these samples with Prime-seq on extracted RNAs already. Results were not that great. Here reprocess the same samples with TIRE-seq for a head to head comparison.
+
+## Samples
+
+* Yasmin Nouri plates.
+* All wells have 10,000 cells in 50ul total volume.
+* Comprised of 25ul cells in media and 25ul 2x buffer TCL
+* The cell concentration is therefore 200 cells/uL.
+* So 20uL input will be 4000 cells.
+
+## Lab notes
+
+The processing went as planned. Full writeup available at [ELN link](https://au-mynotebook.labarchives.com/share/Daniel_RnD_Projects/NDkxLjQwMDAwMDAwMDAwMDAzfDY4MTk3LzM3OC9UcmVlTm9kZS8zMzc4NjI0NXwxMjQ3LjM5OTk5OTk5OTk5OTk=)
+
+# Read data
+
+This was generated in *2A_clustering*
+
+
+```{r read_sce}
+sce <- readRDS(here::here(
+     "data/TIRE_Tcell/SCEs/tcell_cluster.sce.rds"
+))
+# Reorder factor levels
+sce$Timepoint <- factor(sce$Timepoint, 
+                            levels = c("Day_0", "Day_1", "Day_2",
+                                       "Day_5", "Day_6", "Day_8",
+                                       "Day_9", "Day_13", "Day_15"))
+
+dge <- scran::convertTo(sce, type="edgeR")
+tb <- as_tibble(dge$samples)
+```
+
+Check on the perturbations conducted in this experiment:
+
+```{r}
+tb %>% 
+  dplyr::count(Subset, Donor, Timepoint) %>% 
+  arrange(Timepoint) %>% 
+  head(10)
+```
+
+Filter for genes that have at least 5 counts.  
+Currently keep 8,249
+
+```{r filter_gene}
+keep <- filterByExpr(dge, group=dge$samples$Timepoint, min.count=5)
+dge <- dge[keep,]
+summary(keep)
+```
+
+Correct for composition biases by computing normalization factors with the trimmed mean of M-values method.
+
+```{r norm_factors}
+dge <- calcNormFactors(dge)
+```
+
+## Basic DE analysis
+
+Combine time and subset into a new factor. For an interaction analysis it is easier to be more explicit than having fancy multiplication terms i.e timepoint * subset
+
+The intercept term in a design matrix represents the baseline or reference level in your experimental design. Specifically:
+
+* When an intercept is included, it typically corresponds to the mean expression level of the reference group or condition.
+* Other coefficients in the model are then interpreted as differences from this baseline.
+* Have "0" in the model matrix means the intercept regressed out
+* When you include an intercept term in the model matrix, it adds a column of 1s to the design matrix. This column of 1s allows the regression line to intersect the y-axis at a non-zero point.
+  + Removing the intercept term (by using model.matrix(~0 + .)) forces the regression line to go through the origin (y-axis at 0).
+* Including an intercept makes good sense when the first group represents a reference or control group, as all comparison are made with respect to this condition.
+* In the case of this experiment, removing the intercept means I can make a later contrast matrix that explicitly lists the comparisons of interest.
+
+```{r}
+dge$samples$Subset_Time <- paste(dge$samples$Subset, dge$samples$Timepoint, sep="-")
+
+sm <- model.matrix(~0+Subset_Time + Donor, data=dge$samples)
+# hypens not allowed
+colnames(sm) <- make.names(colnames(sm), unique = FALSE, allow_ = TRUE)
+```
+
+### Look at some highly expressed genes
+
+Convert the day from a factor to a numeric
+
+```{r}
+sce$TimeDay <- str_split(sce$Timepoint, pattern = "_", simplify = T)[,2]
+sce$TimeDay <- factor(sce$TimeDay, levels = sort(as.numeric(unique(sce$TimeDay))))
+```
+
+
+```{r immune_gene_time, fig.asp=1}
+interest <- c("IL2", "IFNG", "CDK1", "MKI67")
+sce <- logNormCounts(sce)
+
+plt0 <- plotExpression(sce, features = interest, x = "TimeDay", assay.type = "logcounts",
+                       colour_by = "Subset", exprs_values = "counts") + 
+  theme_Publication() + xlab("Day") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+plt0
+```
+
+# Differential expression analysis {.tabset}
+
+Decide on the contrasts.
+
+We focus on the early timepoints which is where all the changes take place.
+
+```{r}
+contr.matrix <- makeContrasts(
+   Day0 = Subset_TimeCD8.Day_0 - Subset_TimeCD4.Day_0,
+   Day1 = Subset_TimeCD8.Day_1 - Subset_TimeCD4.Day_1,
+   Day2 = Subset_TimeCD8.Day_2 - Subset_TimeCD4.Day_2,
+   Day5 = Subset_TimeCD8.Day_5 - Subset_TimeCD4.Day_5,
+   Day15 = Subset_TimeCD8.Day_15 - Subset_TimeCD4.Day_15,
+   levels = colnames(sm))
+
+contr.matrix %>% 
+  kable()
+```
+
+In each contrast, the format is A - B where:
+
+* A represents the condition considered as the "treatment" or point of interest
+* B represents the condition considered as the "control" or baseline
+
+So in this analysis the positive log fold changes will be CD8 cells.
+
+Fit this model using limma/ voom.
+
+```{r}
+par(mfrow=c(1,2))
+v <- voom(dge, sm, plot=TRUE)
+
+vfit <- lmFit(v, sm)
+vfit <- contrasts.fit(vfit, contrasts=contr.matrix)
+efit <- eBayes(vfit)
+plotSA(efit, main="Final model: Mean-variance trend")
+```
+
+## Perform the differential expression analysis.
+
+Check how many genes are differentially expressed
+
+```{r}
+summary(decideTests(efit))
+```
+
+# Visualise DE genes{.tabset}
+
+## Day 1
+
+CD8 is highest which is a good sanity check.
+
+```{r}
+Day1_cd8.vs.cd4 <- topTable(efit, coef=2, n=length(efit$genes$ID), sort.by = "logFC")
+results <- as_tibble(Day1_cd8.vs.cd4)
+results$ID <- rownames(Day1_cd8.vs.cd4)
+
+# add a column of NAs
+results$DElabel <- FALSE
+# if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
+results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "CD8"
+results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "CD4"
+```
+
+Add gene labels
+
+```{r}
+results$genelabels <- ""
+results$genelabels[results$Symbol == "CD8B"] <- "CD8B"
+results$genelabels[results$Symbol == "CD8A"] <- "CD8A"
+results$genelabels[results$Symbol == "XCL1"] <- "XCL1"
+results$genelabels[results$Symbol == "FCGR3A"] <- "FCGR3A"
+
+results$genelabels[results$Symbol == "CD4"] <- "CD4"
+results$genelabels[results$Symbol == "TSHZ2"] <- "TSHZ2"
+results$genelabels[results$Symbol == "FBLN7"] <- "FBLN7"
+```
+
+* XCL1 is an inflammatory chemokine that is mainly secreted by activated CD8+ T cells and its biological function is the subject of renewed scrutiny.
+  + The earliest reports described XCL1 as a mediator of T cell and NK cell chemotaxis
+  + However, recent studies suggest a highly specialized role of the XCL1-XCR1 signaling axis in the mediation of interactions between antigen-presenting dendritic cells and T-cells.
+
+### Generate volcano plot
+
+```{r day1_volcano}
+plt1 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
+  geom_point(alpha=0.33, size=1.5) +
+  geom_text_repel(size=4, colour="black") +
+  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
+  scale_color_manual(values = c("darkblue", "darkorange", "grey"), name = "Upregulated") +
+  geom_vline(xintercept = 1, linetype="dotted") + 
+  geom_vline(xintercept = -1, linetype="dotted") +
+  theme_Publication()
+
+plt1
+```
+
+### Generate heatmap
+
+```{r heatmap_d1}
+dge$logCPM <- cpm(dge, log=TRUE, prior.count=1)
+dge_subset <- dge[,dge$samples$Timepoint == "Day_1"]
+create_gene_heatmap(de_results_df = results, dge_object = dge_subset, font_size = 12, num_genes=15)
+```
+
+### Gene set testing with camera
+
+Need to convert geneIDs from ensembl to enterez
+
+```{r}
+geneids <- as.data.frame(v$genes$ID)
+colnames(geneids) <- "ENSEMBL"
+
+geneids$entrez <- mapIds(org.Hs.eg.db, keys = geneids$ENSEMBL, keytype = "ENSEMBL", column = "ENTREZID")
+
+load("data/MSigDB/human_H_v5p2.rdata")
+idx <- ids2indices(Hs.H,identifiers = geneids$entrez)
+```
+
+Myc targets up in CD4 and complement up in CD8
+
+```{r}
+cam.day1 <- camera(v,idx,sm,contrast=contr.matrix[,2])
+head(cam.day1,10)
+```
+
+## Day 2
+
+Day 2 is where most of the changes take place and the T cells are taking off after being stimulated.
+
+```{r}
+Day2_cd8.vs.cd4 <- topTable(efit, coef=3, n=length(efit$genes$ID), sort.by = "logFC")
+results <- as_tibble(Day2_cd8.vs.cd4)
+results$ID <- rownames(Day2_cd8.vs.cd4)
+
+# add a column of NAs
+results$DElabel <- FALSE
+# if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
+results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "CD8"
+results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "CD4"
+```
+
+Add gene labels
+
+```{r}
+results$genelabels <- ""
+results$genelabels[results$Symbol == "CD8B"] <- "CD8B"
+results$genelabels[results$Symbol == "CD8A"] <- "CD8A"
+results$genelabels[results$Symbol == "CD8B2"] <- "CD8B2"
+results$genelabels[results$Symbol == "XCL1"] <- "XCL1"
+
+results$genelabels[results$Symbol == "CD4"] <- "CD4"
+results$genelabels[results$Symbol == "TSHZ2"] <- "TSHZ2"
+results$genelabels[results$Symbol == "FBLN7"] <- "FBLN7"
+results$genelabels[results$Symbol == "CTSL"] <- "CTSL"
+```
+
+### Generate volcano plot
+
+```{r day2_volcano}
+plt2 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
+  geom_point(alpha=0.33, size=1.5) +
+  geom_text_repel(size=4, colour="black") +
+  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
+  scale_color_manual(values = c("darkblue", "darkorange", "grey"), name = "Upregulated") +
+  geom_vline(xintercept = 1, linetype="dotted") + 
+  geom_vline(xintercept = -1, linetype="dotted") +
+  theme_Publication()
+
+plt2
+```
+
+### Generate heatmap
+
+```{r heatmap_d2}
+dge$logCPM <- cpm(dge, log=TRUE, prior.count=1)
+dge_subset <- dge[,dge$samples$Timepoint == "Day_2"]
+create_gene_heatmap(de_results_df = results, dge_object = dge_subset, font_size = 12, num_genes=15)
+```
+
+### Gene set testing with camera
+
+At day 2:
+
+* Proliferation higher in CD8
+* Inferon / cytokine signalling up in CD4
+
+```{r}
+cam.day2 <- camera(v,idx,sm,contrast=contr.matrix[,3])
+head(cam.day2,10)
+```
+
+Visualize as a barplot
+
+```{r geneset_barchart_day2}
+geom_GeneSet_Barchart(cam.day2)
+```
+
+## Day 15
+
+Some chemokines here but nothing interesting
+
+```{r}
+Day15_cd8.vs.cd4 <- topTable(efit, coef=5, n=length(efit$genes$ID), sort.by = "logFC")
+results <- as_tibble(Day15_cd8.vs.cd4)
+results$ID <- rownames(Day15_cd8.vs.cd4)
+
+# add a column of NAs
+results$DElabel <- FALSE
+# if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
+results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "CD8"
+results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "CD4"
+```
+
+Add gene labels
+
+```{r}
+results$genelabels <- ""
+results$genelabels[results$Symbol == "CD8B"] <- "CD8B"
+results$genelabels[results$Symbol == "CD8A"] <- "CD8A"
+results$genelabels[results$Symbol == "CD8B2"] <- "CD8B2"
+results$genelabels[results$Symbol == "ZNF683"] <- "ZNF683"
+
+results$genelabels[results$Symbol == "CD4"] <- "CD4"
+results$genelabels[results$Symbol == "CCL1"] <- "CCL1"
+results$genelabels[results$Symbol == "GZMB"] <- "GZMB"
+results$genelabels[results$Symbol == "XCL1"] <- "XCL1"
+```
+
+### Generate volcano plot
+
+```{r day15_volcano}
+plt3 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
+  geom_point(alpha=0.33, size=1.5) +
+  geom_text_repel(size=4, colour="black", max.overlaps = 40) +
+  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
+  scale_color_manual(values = c("darkblue", "darkorange", "grey"), name = "Upregulated") +
+  geom_vline(xintercept = 1, linetype="dotted") + 
+  geom_vline(xintercept = -1, linetype="dotted") +
+  theme_Publication()
+
+plt3
+```
+
+## Day 5
+
+Some chemokines here but nothing interesting
+
+```{r}
+Day5_cd8.vs.cd4 <- topTable(efit, coef=4, n=length(efit$genes$ID), sort.by = "logFC")
+results <- as_tibble(Day5_cd8.vs.cd4)
+results$ID <- rownames(Day5_cd8.vs.cd4)
+
+# add a column of NAs
+results$DElabel <- FALSE
+# if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
+results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "CD8"
+results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "CD4"
+```
+
+Add gene labels
+
+```{r}
+results$genelabels <- ""
+results$genelabels[results$Symbol == "CD8B"] <- "CD8B"
+results$genelabels[results$Symbol == "CD8A"] <- "CD8A"
+results$genelabels[results$Symbol == "LINC02446"] <- "LINC02446"
+results$genelabels[results$Symbol == "KLRD1"] <- "KLRD1"
+
+results$genelabels[results$Symbol == "CD4"] <- "CD4"
+results$genelabels[results$Symbol == "CD40LG"] <- "CD40LG"
+results$genelabels[results$Symbol == "TIMP1"] <- "TIMP1"
+results$genelabels[results$Symbol == "FHIT"] <- "FHIT"
+```
+
+### Generate volcano plot
+
+```{r day5_volcano}
+plt4 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
+  geom_point(alpha=0.33, size=1.5) +
+  geom_text_repel(size=4, colour="black", max.overlaps = 30) +
+  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
+  scale_color_manual(values = c("darkblue", "darkorange", "grey"), name = "Upregulated") +
+  geom_vline(xintercept = 1, linetype="dotted") + 
+  geom_vline(xintercept = -1, linetype="dotted") +
+  theme_Publication()
+
+plt4
+```
+
+# Conclusion
+
+Genes are all expected. Good to see CD4 and CD8 as most DE genes.
+
+### Session info
+```{r}
+sessionInfo()
+```

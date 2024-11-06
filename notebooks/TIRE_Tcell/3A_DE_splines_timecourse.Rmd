@@ -1,0 +1,384 @@
+---
+title: "Human T cell DE testing splines"
+description: "Differential expression testing with a spline based framework for timepoints"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/splines_time/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+suppressPackageStartupMessages({
+  library(SingleCellExperiment)
+  library(tidyverse)
+  library(scater)
+  library(edgeR)
+  library(splines)
+  library(pheatmap)
+  library(patchwork)
+  library(viridis)
+  library(knitr)
+  library(here)
+source(here::here("scripts/R/theme_publication.R"))
+theme_set(theme_Publication(base_size = 14))
+})
+```
+
+Heatmap function
+
+```{r}
+create_gene_heatmap <- function(de_results_df, dge_object, font_size = 12, num_genes = 20) {
+  # Subset the genes
+  top_genes <- de_results_df$Symbol[1:num_genes]
+  subset_matrix <- dge_object$logCPM[top_genes, colnames(dge_object$counts)]
+  
+  # Create annotation dataframe
+  sample_info <- dge_object$samples
+  annotation_df <- data.frame(
+    Timepoint = sample_info$Timepoint,
+    Donor = sample_info$Donor,
+    Subset = sample_info$Subset
+  )
+  rownames(annotation_df) <- colnames(subset_matrix)
+  
+  # Reorder gene expression matrix
+  ordered_samples <- order(sample_info$Timepoint_day, sample_info$Subset, sample_info$Donor)
+  subset_matrix <- subset_matrix[, ordered_samples]
+  sample_info <- sample_info[ordered_samples, ]
+  
+  # Create the heatmap
+  heatmap <- pheatmap(subset_matrix,
+           scale = "row",
+           cluster_rows = FALSE,
+           cluster_cols = FALSE,
+           color = viridis(50),
+           show_colnames = FALSE,
+           annotation_col = annotation_df,
+           fontsize = font_size,
+           silent = FALSE)
+  }
+```
+
+# TIRE-seq T cell human de splines timecourse
+
+The aim of this notebook is to identify genes that change over time upon T cell stimulation.
+
+## Recap
+
+I sequenced these samples with Prime-seq on extracted RNAs already. Results were not that great. Here reprocess the same samples with TIRE-seq for a head to head comparison.
+
+## Samples
+
+* Yasmin Nouri plates.
+* All wells have 10,000 cells in 50ul total volume.
+* Comprised of 25ul cells in media and 25ul 2x buffer TCL
+* The cell concentration is therefore 200 cells/uL.
+* So 20uL input will be 4000 cells.
+
+## Lab notes
+
+The processing went as planned. Full writeup available at [ELN link](https://au-mynotebook.labarchives.com/share/Daniel_RnD_Projects/NDkxLjQwMDAwMDAwMDAwMDAzfDY4MTk3LzM3OC9UcmVlTm9kZS8zMzc4NjI0NXwxMjQ3LjM5OTk5OTk5OTk5OTk=)
+
+# Read data
+
+This was generated in *2A_clustering*
+
+Workflow is from https://hackmd.io/@9RO7DTzsQ_2CaEAsT6y6NA/Bk0pW5gZn#Exercise-2---Cubic-Splines
+
+This is a more relevant analysis strategy for timecourse experiments where we fit a polynominal curve to each timepoint.
+
+```{r read_sce}
+sce <- readRDS(here::here(
+     "data/TIRE_Tcell/SCEs/tcell_cluster.sce.rds"
+))
+
+dge <- scran::convertTo(sce, type="edgeR")
+tb <- as_tibble(dge$samples)
+```
+
+Check on the perturbations conducted in this experiment:
+
+```{r}
+tb %>% 
+  dplyr::count(Subset, Donor, Timepoint) %>% 
+  arrange(Timepoint) %>% 
+  head(10)
+```
+
+Filter for genes that have at least 5 counts.  
+Currently keep 8,249
+
+```{r filter_gene}
+keep <- filterByExpr(dge, group=dge$samples$Timepoint, min.count=5)
+dge <- dge[keep,]
+summary(keep)
+```
+
+Correct for composition biases by computing normalization factors with the trimmed mean of M-values method.
+
+```{r norm_factors}
+dge <- calcNormFactors(dge)
+```
+
+Check the MDS plot.  
+Day 0, 1 and 2 the times with the most difference.
+
+```{r}
+limma::plotMDS(dge, labels=dge$samples$Timepoint)
+```
+
+## Perform differential expression testing
+
+Need to recode the timepoint to a numeric for the spline fitting to occur.
+
+```{r}
+dge$samples$Timepoint_day <- as.numeric(str_split(
+  string = dge$samples$Timepoint, pattern = "_", simplify = TRUE)[,2]
+)
+```
+
+### Construct the design matrix
+
+Use a cubic regression spline curve with 3 degrees of freedom.  
+According to the edgeR manual this is a good place to start.
+
+Checked a few different degrees of freedom and 4 fits the data well
+
+```{r bcv}
+splines <- ns(dge$samples$Timepoint_day, df = 4)
+
+design <- model.matrix(~splines + Donor + Subset, dge$samples)
+#design <- model.matrix(~splines + Donor + Subset, dge$samples)
+
+head(design)
+```
+
+The four spline coefficients do not have any particular meaning. Hypothesis testing would only make sense if the three coefficients are assessed together. The advantage of using a cubic spline curve is that it provides more stable fit at the end points compared to a polynomial.
+
+### Fit BCV
+
+Compared to the edgeR example on timecourse analysis the biological variation is pretty low.
+
+```{r qld}
+par(mfrow=c(1,2))
+
+dge <- estimateDisp(dge, design)
+summary(dge$trended.dispersion)
+
+plotBCV(dge)
+
+fit <- glmQLFit(dge, design, robust=TRUE)
+summary(fit$var.prior)
+plotQLDisp(fit)
+```
+
+## Timecourse analysis {.tabset}
+
+In a timecourse experiment, we are looking for genes that change expression level over time. Here, the design matrix uses 3 natural spline basis vectors to model smooth changes over time, without assuming any particular pattern to the trend.  
+We test for a trend by conducting F-tests on 3 df for each gene:
+
+```{r test}
+fit <- glmQLFTest(fit, coef=2:5)
+```
+
+The topTags function lists the top set of genes that vary the most over time.
+
+```{r}
+results <- as_tibble(as.data.frame(
+  topTags(fit, n=length(fit$genes$Symbol))
+  ))
+results[results$FDR < 0.1,]
+```
+
+The total number of genes with significant (5% FDR) changes at different doses can be examined with decideTests.
+
+There are 8,675 differentially expressed genes across timepoints
+
+```{r}
+summary(decideTests(fit))
+```
+
+Note that all three spline coefficients should be tested together in this way. It is not meaningful to replace the F-tests with t-tests for the individual coefficients, and similarly the logFC columns of the top table do not have any interpretable meaning.  
+The trends should instead be interpreted by way of trend plots, as we show now.  
+Finally, we visualize the fitted spline curves for the top four genes. We start by computing the observed and fitted log-CPM values for each gene:
+
+```{r}
+top_genes <- head(results$Symbol,9)
+
+logCPM.obs <- as.data.frame(cpm(dge, log=TRUE, prior.count=fit$prior.count))
+logCPM.obs$ID <- row.names(logCPM.obs)
+logCPM.fit <- as.data.frame(cpm(fit, log=TRUE))
+logCPM.fit$ID <- row.names(logCPM.fit)
+
+# Mung the cpm columns into a single tibble
+lcm.obs <- pivot_longer(logCPM.obs[top_genes,], cols = -ID, names_to = "sample", values_to = "count") %>% 
+  dplyr::rename(obs_cpm = count)
+lcm.fit <- pivot_longer(logCPM.fit[top_genes,], cols = -ID, names_to = "sample", values_to = "count") %>% 
+  dplyr::rename(fit_cpm = count)
+
+lcm.obs$fit_cpm <- lcm.fit$fit_cpm
+```
+
+Add back the sample metadata
+
+```{r}
+lcm <- left_join(lcm.obs, dge$samples[,c("Well_BC", "Timepoint_day", "Subset", "Donor")],
+                 by=c("sample" = "Well_BC"))
+```
+
+## Visulaise results {.tabset}
+
+Set up the gene expression matrix to view a heatmap of early timepoints
+
+```{r}
+dge$logCPM <- cpm(dge, log=TRUE, prior.count=1)
+dge_early <- dge[,dge$samples$Timepoint_day <= 5]
+```
+
+### Most significant changes over time
+
+Generate the plot linear x axis. Both genes go up and down in this plot
+
+```{r timecourse, fig.height=8,fig.width=10}
+plt3 <- ggplot(lcm) +
+  geom_point(aes(y = obs_cpm, x=Timepoint_day, colour=Subset)) +
+  scale_colour_Publication() +
+  geom_smooth(aes(y = fit_cpm, x=Timepoint_day), method = "loess", se = FALSE, color = "red") +
+  xlab("Timepoint_day") + ylab("logCPM") +
+  theme_Publication() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_wrap(~ID, scales = "free_y")
+
+plt3
+```
+
+Prepare a heatmap of the the genes that change during the timecourse
+
+```{r heatmap_all}
+create_gene_heatmap(results, dge_early, font_size = 12, num_genes = 20)
+```
+
+### Subset for genes that go up upon stimulation
+
+Focus on genes that go up upon stimulation with CD28 and CD3 beads.
+
+```{r}
+up <- results %>% 
+  filter(FDR < 0.05) %>% 
+  filter(logFC.splines2 > 0)
+
+up_genes <- head(up$Symbol,4)
+
+logCPM.obs <- as.data.frame(cpm(dge, log=TRUE, prior.count=fit$prior.count))
+logCPM.obs$ID <- row.names(logCPM.obs)
+logCPM.fit <- as.data.frame(cpm(fit, log=TRUE))
+logCPM.fit$ID <- row.names(logCPM.fit)
+
+# Mung the cpm columns into a single tibble
+lcm.obs <- pivot_longer(logCPM.obs[up_genes,], cols = -ID, names_to = "sample", values_to = "count") %>% 
+  dplyr::rename(obs_cpm = count)
+lcm.fit <- pivot_longer(logCPM.fit[up_genes,], cols = -ID, names_to = "sample", values_to = "count") %>% 
+  dplyr::rename(fit_cpm = count)
+
+lcm.obs$fit_cpm <- lcm.fit$fit_cpm
+
+lcm <- left_join(lcm.obs, dge$samples[,c("Well_BC", "Timepoint_day", "Subset", "Receptor", "Donor")],
+                 by=c("sample" = "Well_BC"))
+```
+
+Visualise the results
+
+```{r timecourse_up}
+plt4 <- ggplot(lcm) +
+  geom_point(aes(y = obs_cpm, x=Timepoint_day, colour=Subset)) +
+  scale_colour_Publication() +
+  geom_smooth(aes(y = fit_cpm, x=Timepoint_day), method = "loess", se = FALSE, color = "red") +
+  xlab("Timepoint_day") + ylab("logCPM") +
+  theme_Publication() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_wrap(~ID, scales = "free_y")
+
+plt4
+```
+
+Prepare a heatmap of the the genes that go up.
+
+```{r heatmap_up}
+create_gene_heatmap(up, dge_early, font_size = 12, num_genes = 20)
+```
+
+### Subset for genes that go down upon stimulation
+
+This is a little less clear because the cells are thawed from liquid nitrogen so start off in a rough state.
+
+```{r}
+down <- results %>% 
+  filter(FDR < 0.05) %>% 
+  filter(logFC.splines2 < 0)
+
+down_genes <- head(down$Symbol,4)
+
+logCPM.obs <- as.data.frame(cpm(dge, log=TRUE, prior.count=fit$prior.count))
+logCPM.obs$ID <- row.names(logCPM.obs)
+logCPM.fit <- as.data.frame(cpm(fit, log=TRUE))
+logCPM.fit$ID <- row.names(logCPM.fit)
+
+# Mung the cpm columns into a single tibble
+lcm.obs <- pivot_longer(logCPM.obs[down_genes,], cols = -ID, names_to = "sample", values_to = "count") %>% 
+  dplyr::rename(obs_cpm = count)
+lcm.fit <- pivot_longer(logCPM.fit[down_genes,], cols = -ID, names_to = "sample", values_to = "count") %>% 
+  dplyr::rename(fit_cpm = count)
+
+lcm.obs$fit_cpm <- lcm.fit$fit_cpm
+
+lcm <- left_join(lcm.obs, dge$samples[,c("Well_BC", "Timepoint_day", "Subset", "Receptor", "Donor")],
+                 by=c("sample" = "Well_BC"))
+```
+
+```{r timecourse_down}
+plt5 <- ggplot(lcm) +
+  geom_point(aes(y = obs_cpm, x=Timepoint_day, colour=Subset)) +
+  scale_colour_Publication() +
+  geom_smooth(aes(y = fit_cpm, x=Timepoint_day), method = "loess", se = FALSE, color = "red") +
+  xlab("Timepoint_day") + ylab("logCPM") +
+  theme_Publication() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_wrap(~ID, scales = "free_y")
+
+plt5
+```
+
+Prepare a heatmap of the the genes that change during the timecourse.  
+This is really not clear in the heatmap visulaisation.
+
+```{r heatmap_down}
+create_gene_heatmap(down, dge_early, font_size = 12, num_genes = 20)
+```
+
+# Differential expression analysis day 1 vs day 2
+
+This is where the majority of the changes are taking place based on the spline analysis
+
+## Conclusion
+
+* Some of the genes make sense. Many of the typical immune candidates are not expressed highly enough to come up.
+* Most of the time sensitive genes decrease over time. This is probably related to the first timepoint being cells thawed from cyropreservation.
+
+### Session info
+```{r}
+sessionInfo()
+```

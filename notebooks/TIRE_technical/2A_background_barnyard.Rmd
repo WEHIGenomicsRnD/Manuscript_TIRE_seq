@@ -1,0 +1,192 @@
+---
+title: "TIRE vs Prime-seq barnyard"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/barnyard/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+
+library(SingleCellExperiment)
+library(tidyverse)
+library(scuttle)
+library(scater)
+library(platetools)
+library(patchwork)
+library(here)
+source(here::here("scripts/R/theme_publication.R"))
+theme_set(theme_Publication())
+```
+
+# TIRE vs Prime-seq barnyard
+
+## Aim
+
+Investigate the difference between species separation in barnyard plots
+
+## Data to read in
+
+I read in experiments where I spiked my own human and mouse cell lines; HEK293T and NIH3T3.
+
+TIRE-seq / TurboCapture-seq [mouse DC expt][https://au-mynotebook.labarchives.com/share/Daniel_RnD_Projects/NDUzLjd8NjgxOTcvMzQ5L1RyZWVOb2RlLzEzMDk5NDU5MDZ8MTE1MS43]
+
+* Prime-seq/ Minibulk v2. [Splicing experiment 1](https://au-mynotebook.labarchives.com/share/Daniel_RnD_Projects/NDUyLjQwMDAwMDAwMDAwMDAzfDY4MTk3LzM0OC9UcmVlTm9kZS8xNjc4OTU2MTQwfDExNDguMzk5OTk5OTk5OTk5OQ==)
+
+## Read SCE and extract col data
+
+```{r}
+tire <- readRDS(here::here(
+  "data/TIRE_dendritic_mouse/SCEs/", "DCs_Mixed_basic.sce.rds"))
+
+tb_tire <- as_tibble(colData(tire))
+tb_tire$Protocol <- "TIRE-seq"
+
+# Keep only the 8 PCR samples as these performed best and had most reads
+tb_tire <- tb_tire %>% 
+  filter(Researcher == "DB")
+
+tb_tire$Species <- recode(tb_tire$Species,
+                         "None" = "NTC")
+```
+
+Prime-seq/ minibulk v2. In this experiment replicate 3 had the Janjic et al., style of RT primer removal; 2 bead cleanups + exo treatment.  
+The first 2 replicates inherit the RT removal of our old protocols. 1 exo treatment and 1 bead cleanup.
+
+```{r}
+mb2 <- readRDS("/stornext/Home/data/allstaff/b/brown.d/Projects/G000233_DRAC-Seq/data/MB2_Benchmarking/SCEs/benchmarking_expt1_basic.sce.rds")
+
+mb_tb <- as_tibble(colData(mb2))
+mb_tb$Protocol <- "Modified Prime-seq"
+
+# Remove first replicate leaving only 1 replicate each of different primer removal stratgeises
+mb_tb <- mb_tb %>% 
+  filter(Researcher == "DB") %>% 
+  filter(Plate_replicate == "Three") %>% 
+  filter(Biological_replicate == 1)
+```
+
+Combine the tibbles together for subsequent visualisation.
+
+```{r}
+keep_cols <- intersect(
+  colnames(mb_tb),
+  colnames(tb_tire)
+)
+
+tb <- rbind(
+  mb_tb[,keep_cols],
+  tb_tire[,keep_cols]
+)
+```
+
+# Human and mouse mapping {.tabset}
+
+Add a CPM column to make the scale easier to see.
+
+```{r}
+tb <- tb %>% 
+  group_by(Protocol) %>% 
+  mutate(
+    mouse_CPM =  subsets_Mouse_sum / sum(sum) * 1e6,
+    human_CPM =  subsets_Human_sum / sum(sum) * 1e6
+  )
+```
+
+## Barnyard natural scale
+
+```{r barnyard}
+p1 <- ggplot(tb, aes(x=subsets_Mouse_sum, y=subsets_Human_sum, colour=Protocol, shape=Species)) + 
+    geom_point(size=2) +
+  xlab("Mouse library size") + 
+  ylab("Human library size") +
+  ylim(0,2e6) + xlim(0,2e6) +
+  scale_colour_brewer(palette = "Dark2")
+
+p1
+```
+
+## Barnyard cpm scale
+
+This is not very useful
+
+```{r barnyard_cpm}
+p3 <- ggplot(tb, aes(x=mouse_CPM, y=human_CPM, colour=Protocol, shape=Species)) + 
+    geom_point(size=2) +
+  xlab("Mouse library size") + 
+  ylab("Human library size") +
+  ylim(0,3e5) + xlim(0,3e5) +
+  scale_colour_brewer(palette = "Dark2")
+
+p3
+```
+
+## Barnyard log scale
+
+Probably the fairest looking comparison to have everything looking similar
+
+```{r species_counts_log}
+p2 <- ggplot(tb, aes(y=subsets_Human_sum, x=subsets_Mouse_sum, colour=Protocol, shape=Species)) + 
+    geom_point(size=2) +
+  xlab("Mouse library size") + 
+  ylab("Human library size") +
+  scale_y_continuous(trans='log10', limits = c(1,2e6)) + scale_x_continuous(trans='log10', limits = c(1,2e6)) +
+  annotation_logticks(base = 10, sides = "bl") +
+  scale_colour_brewer(palette = "Dark2")
+
+p2
+```
+
+## Violin percentages
+
+Plotting the percent mapped also looks like a reasonable representation.
+
+As there are fewer mouse samples in TIRE-Seq one would expect to see more bleed through of human into mousse which is not the case.
+
+```{r}
+percent <- tb %>% 
+  filter(Species != "NTC") %>% 
+  filter(Protocol != "Minimal primer removal") %>% 
+  select(Species, subsets_Human_percent, subsets_Mouse_percent, Protocol) %>% 
+  pivot_longer(cols = c(subsets_Human_percent, subsets_Mouse_percent), names_to = "Subset", values_to = "Percent")
+
+percent$Subset <- recode(percent$Subset,
+                         subsets_Human_percent = "Human",
+                         subsets_Mouse_percent = "Mouse"
+                         )
+```
+
+Produce the visualisation
+
+```{r violin_percent}
+p5 <- ggplot(percent, aes(y=Percent, x=Subset, colour=Protocol)) + 
+    geom_jitter(width = 0.3, alpha=0.75) +
+  xlab("") + 
+  ylab("Percent mapped") +
+  scale_colour_brewer(palette = "Dark2") +
+  facet_wrap(~Species)
+
+p5
+```
+
+### Session info
+```{r}
+sessionInfo()
+```

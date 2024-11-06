@@ -1,0 +1,196 @@
+---
+title: "Brain human Generate SCE object"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/generateSCE/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+
+library(tidyverse)
+library(scuttle)
+library(scran)
+library(scater)
+library(here)
+library(patchwork)
+source(here::here("scripts/R/theme_publication.R"))
+theme_set(theme_Publication())
+```
+
+# TIRE-Seq human brain neurospheres
+
+## Recap
+
+These are the first experiments where I use version 2 chemistry. Read 2 is now the barcode and UMI. Read 1 is the cDNA. This was done to avoid reading through the TSO on Ilumina read 1
+
+This sequencing run consists of 3 experiments:
+
+1. Test the version 2 protocol with magnetic poly-T Dynabeads [https://au-mynotebook.labarchives.com/share/Piper_Research_Project/MjAuOHwxNzE3NjUvMTYvVHJlZU5vZGUvNDE3OTUxMTA4N3w1Mi44](ELN link])
+2. Benchmark the version 2 protocol with a mixture of human and mouse cell lines Daniel Brown generated [https://au-mynotebook.labarchives.com/share/Piper_Research_Project/MjkuOTAwMDAwMDAwMDAwMDAyfDE3MTc2NS8yMy9UcmVlTm9kZS8yMzM4NDg4MTE1fDc1Ljg5OTk5OTk5OTk5OTk5](ELN link)
+3. Test version 2 protocol with a biological appliation from Zac Moore of Brain Cancer lab [https://au-mynotebook.labarchives.com/share/Piper_Research_Project/MzEuMjAwMDAwMDAwMDAwMDAzfDE3MTc2NS8yNC9UcmVlTm9kZS8zMzczNDM0NjE1fDc5LjE5OTk5OTk5OTk5OTk5](ELN link)
+
+# Generate count matrices for downstream analysis {.tabset}
+
+## Human mapped reads from zUMI
+
+Read in the sample sheets and metadata
+
+```{r}
+gene_names <- read_tsv(here::here(
+  "data/GenomicsRnD/S000514/zUMI_outputs/expression/TIRE_Brain_Hs.gene_names.txt"))
+
+meta_data <- read_csv(here::here(
+  "metadata/S000432", "brainCancer_sample_metadata_v2.csv"))
+meta_data <- meta_data %>% 
+  filter(PCR_conditions == "PCR1-12_PCR2-10")
+meta_data$PCR_conditions <- "PCR1-10_PCR2-8" # Correct the metadata label
+
+mapping <- read_tsv(here::here(
+  "data/GenomicsRnD/S000514/zUMI_outputs/stats/TIRE_Brain_Hs.readspercell.txt"))
+
+zUMI <- here::here("data/GenomicsRnD/S000514/zUMI_outputs/expression/TIRE_Brain_Hs.dgecounts.rds")
+
+```
+
+Read the zUMI output
+
+```{r read_zUMI_brain}
+zUMI_brain <- readRDS(zUMI)
+
+ds_names <- names(zUMI_brain[["umicount"]][["exon"]][["downsampling"]])
+
+# Check the number of samples for each downsampling
+for (n in ds_names) {
+  print(n)
+  print(dim(zUMI_brain[["umicount"]][["exon"]][["downsampling"]][[n]]))
+}
+
+counts <- zUMI_brain[["umicount"]][["exon"]][["all"]]
+dim(counts)
+```
+
+### Attach metadata
+
+All samples are represented in the count matrix and metadata.  
+In the pipeline I used 8bp of the well barcode sequence
+The Amount column is in thousands of cells per uL so correct this.
+
+```{r}
+meta_data %>% 
+  dplyr::select(Well_BC, Plate_Seq, Sample_BC)
+```
+
+Attach mapping rate metadata
+
+```{r mapping_rate}
+mapping <- mapping %>% 
+  group_by(RG) %>% 
+  pivot_wider(names_from = type, values_from = N) %>% 
+  mutate(
+    Reads = rowSums(across(where(is.numeric))),
+    Mapped = 100 - (Unmapped / Reads * 100),
+    Exon_Map = (Exon / Reads) * 100
+    )
+
+meta_data <- left_join(meta_data, mapping,
+                by = c("Well_BC" = "RG"))
+```
+
+Subset the sample barcodes for those used in the experiment. When I run zUMIs I map against all possible barcodes in index set-TT.
+
+```{r}
+keep_samples <- intersect(colnames(counts), meta_data$Well_BC)
+discard_samples <- setdiff(colnames(counts), meta_data$Well_BC)
+
+dropped <- meta_data[!meta_data$Well_BC %in% keep_samples,]
+counts <- counts[,keep_samples]
+meta_data <- meta_data[meta_data$Well_BC %in% keep_samples,]
+
+meta_data <- meta_data %>% 
+  arrange(Well_BC)
+```
+
+Check the discarded samples from the metadata. There are none
+
+```{r}
+dropped
+```
+
+### Convert to SCE
+
+```{r}
+sce <- SingleCellExperiment(assays=list(counts=counts),
+       colData = meta_data)
+```
+
+Add gene symbol to human
+
+```{r}
+gene_names <- gene_names %>% 
+  arrange(gene_id)
+
+gene_id <- as_tibble(row.names(sce))
+colnames(gene_id) <- "gene_id"
+
+geneID <- left_join(gene_id, gene_names,
+                     by=join_by(gene_id))
+
+rowData(sce)$ID <- geneID$gene_id
+rowData(sce)$Symbol <- geneID$gene_name
+row.names(sce) <- geneID$gene_name
+```
+
+### Compute QC metrics
+Add per cell QC adds the QC info to the colData of the sce.
+
+```{r}
+is.mito.alt <- grepl("^MT", row.names(sce))
+
+sce <- addPerCellQC(sce, subsets=list(
+  Mito=is.mito.alt))
+sce <- addPerFeatureQC(sce)
+```
+
+### Save SCE with quality control
+
+```{r}
+saveRDS(sce, here::here(
+  "data/TIRE_brain_human/SCEs/", "brainCancer_basic.sce.rds"))
+
+tb <- as_tibble(colData(sce))
+
+write_csv(tb, here::here(
+  "data/TIRE_brain_human/Matrices/", "brainCancer_coldata.csv"))
+```
+
+Save as a dgelist objct
+
+```{r}
+dge_brain <- convertTo(sce, type="edgeR")
+
+saveRDS(dge_brain, here::here(
+  "data/TIRE_brain_human/SCEs/", "brainCancer_DGEList.rds"))
+```
+
+### Session info
+```{r}
+sessionInfo()
+```

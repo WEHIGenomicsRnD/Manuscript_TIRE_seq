@@ -1,0 +1,493 @@
+---
+title: "DCs cell type DE analysis"
+description: "Compare the different subsets of wt dendrtic cells"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/de_celltype/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+
+suppressPackageStartupMessages({
+  library(SingleCellExperiment)
+  library(tidyverse)
+  library(scran)
+  library(scater)
+  library(edgeR)
+  library(splines)
+  library(patchwork)
+  library(knitr)
+  library(ggvenn)
+  library(ggrepel)
+  library(viridis)
+  library(AnnotationDbi)
+  library(org.Mm.eg.db)
+  library(here)
+  source(here::here("scripts/R/theme_publication.R"))
+  source(here::here("scripts/R/create_geneset_barchart.R"))
+  theme_set(theme_Publication())
+})
+```
+
+# TIRE-seq Dendritic cells Flt3 stimulation
+
+## Recap
+
+Prior 96w evaluation of TurboCapture-Seq v2 showed low UMIs recovered and high seq saturation. I did low throughput troubleshooting and didn’t see any issues. Process this experiment myself taking care to remove residual liquids from wash steps.
+
+Process Hui Shi of Naik lab + Flt3 timecourse. Includes a few of my samples.
+
+Samples
+
+* Sorted dendritic cells
+* HEK293T cell lysates in 1x TCL @ cells/uL
+* PBMC cell lysates in 1x TCL @ 500 cells/uL
+* No template control 1x TCL
+
+## Notebook recap
+
+SCE object in generate in 1A_generateSCE_reads notebook. The samples were then clustered in the 2B Clustering Wt notebook
+
+## Notebook aim
+
+Compare different subsets sorted from dendritic cells at 5 and 7 days. The easiest contrasts to interpret are the difference from the common dendritic cell precursor (CDP).
+
+Workflow is from:  
+https://bioconductor.org/packages/devel/workflows/vignettes/RNAseq123/inst/doc/limmaWorkflow.html#differential-expression-analysis
+
+## Read SCE and preprocessing
+
+This was generated in notebook 2B.  
+For the comparision of pre-pDC-like cells with the mature subsets I am not interested in the day 7 timepoint. Remove these samples.
+
+```{r}
+sce <- readRDS(here::here(
+   "data/TIRE_dendritic_mouse/SCEs", "DCs_cluster.sce.rds"))
+
+sce$Time_day <- paste(sce$Cell_type, sce$Timepoint_Day, sep="_")
+sce <- sce[,sce$Time_day != "pre-pDC_like_7"]
+
+dge <- scran::convertTo(sce, type="edgeR")
+```
+
+Have a look at the important metadata.  
+There are not enough replicates for the preDC contrast to be meaningful.
+
+```{r}
+tb <- dge$samples[,c("Cell_type", "Cell_number", "Ligand", "Timepoint_Day")]
+
+tb %>% 
+  dplyr::count(Cell_type, Ligand, Timepoint_Day)
+```
+
+## Recap the PCA 
+
+The cell type is the major difference between samples with the timepoint being much less so.
+
+```{r pca_shape}
+plt1 <- scater::plotPCA(sce,colour_by="Cell_type", shape_by= "Timepoint_Day") + 
+  guides(
+  color = guide_legend(ncol = 2),
+  shape = guide_legend(ncol = 2)
+) +
+  theme_Publication()
+
+plt1
+```
+
+Write the day as text.
+
+```{r pca_day}
+pca_tb <- as_tibble(reducedDim(sce))
+pca_tb$Cell_Type <- sce$Cell_type
+pca_tb$Timepoint <- sce$Timepoint_Day
+pca_tb$Timepoint <- as.factor(pca_tb$Timepoint)
+
+plt2 <- ggplot(pca_tb, aes(x=PC1, y=PC2, colour=Cell_Type, label=Timepoint)) +
+  geom_text(size=5) +
+  xlab("PC1 (34%)") + ylab("PC2 (28%)") +
+  scale_colour_brewer(palette = "Dark2") +
+  theme_Publication()
+  
+plt2
+```
+
+## Filter low expressed genes
+
+Doing this reduces the multiple testing burden and fits variation better.
+
+```{r remove}
+dim(dge)
+keep.exprs <- filterByExpr(dge, group=dge$samples$Timepoint_Day, min.count=1)
+dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+dim(dge)
+```
+
+Model timepoint as a numeric
+
+```{r}
+unique(dge$samples$Timepoint_Day)
+dge$samples$Day <- as.numeric(dge$samples$Timepoint_Day)
+
+dge$samples$Day <- ns(dge$samples$Day, df = 2)
+```
+
+## Design matrix
+
+Build the model matrix.  
+Regress out the effect of the timepoint as this is minor compared to the cell type subsets.
+
+```{r}
+sm <- model.matrix(~0+Day + Cell_type, data=dge$samples)
+head(sm)
+
+# hypens not allowed
+colnames(sm) <- make.names(colnames(sm), unique = FALSE, allow_ = TRUE)
+```
+
+Decide on the contrasts. I got this answer from Perplexity ai:
+
+The CDP (Common Dendritic cell Progenitor) is a key cell type in the dendritic cell lineage development:
+
+* The CDP is the myeloid-derived precursor that gives rise to the preDC (pre-Dendritic Cell) population, which can then further differentiate into conventional dendritic cells (cDCs) and plasmacytoid dendritic cells (pDCs).
+* CDPs are the upstream precursor of preDCs, and can differentiate into both the preDC and pDC lineages.
+* CDPs are considered the common or conventional dendritic cell progenitor, as they give rise to the cDC lineage, in contrast to the distinct pDC precursor population.
+
+This matches with the PCA where cDC samples were the most distinct.
+
+```{r}
+contr.matrix <- makeContrasts(
+   CDPvspDC = Cell_typepDC - Cell_typeCDP, 
+   CDPvscDC2 =  Cell_typecDC2 - Cell_typeCDP,
+   cDC2vcpDC =  Cell_typepDC - Cell_typecDC2,
+   cDC2vspDClike = Cell_typecDC2 - Cell_typepre.pDC_like,
+   pDCvspDClike = Cell_typepDC - Cell_typepre.pDC_like,
+   levels = colnames(sm))
+
+contr.matrix %>% 
+  kable()
+```
+
+In each contrast, the format is A - B where:
+
+* A represents the condition considered as the "treatment" or point of interest
+* B represents the condition considered as the "control" or baseline
+
+## Limm voom
+
+Fit this model using limma voom.  
+The final model looks good.
+
+```{r variance}
+par(mfrow=c(1,2))
+v <- voom(dge, sm, plot=TRUE)
+
+vfit <- lmFit(v, sm)
+vfit <- contrasts.fit(vfit, contrasts=contr.matrix)
+efit <- eBayes(vfit)
+plotSA(efit, main="Final model: Mean-variance trend")
+```
+
+## Differential expression analysis
+
+Check how many genes are differentially expressed
+
+```{r}
+summary(decideTests(efit))
+```
+
+## Write results
+
+The write.fit function can be used to extract and write results for all three comparisons to a single output file.
+
+```{r}
+write.fit(efit, file=here::here(
+  "data/TIRE_dendritic_mouse//Matrices/celltype_de_results.txt"
+  ))
+
+saveRDS(efit, here::here(
+  "data/TIRE_dendritic_mouse/Matrices/celltype_dc_efit.rds"
+))
+```
+
+# Investigate DE genes between pDC and cDC2
+
+These are the 2 most mature subsets.
+
+The following info from [Miltenyi](https://www.miltenyibiotec.com/AU-en/resources/macs-handbook/mouse-cells-and-organs/mouse-cell-types/dendritic-cells-mouse.html)
+
+pDCs are primarily located in blood and lymphoid tissues. They depend on the E2-2 transcription factor and express B220, Siglec-H, mPDCA-1 (CD317 or Bst2), as well as intermediate levels of MHC class II, CD11c, and costimulatory molecules. pDCs are poor stimulators of T helper (TH) cells, but upon stimulation with bacterial DNA containing particular unmethylated CpG motifs or upon viral challenge, they produce large amounts of type I IFN and acquire antigen-presenting capacity (PMID: 16172135, 15728491).
+
+* Upon pathogen encounter, pDCs produce large amounts of type I IFN and acquire antigen-presenting capacity.
+
+cDC2 exhibit the same MHC class II and CD11c expression pattern as cDC1, but express additional markers not present on cDC1 and depend on a different transcription factor, i.e., IRF4. Resident spleen and lymph node cDC2 express CD4 and SIRPα. Migratory cDC2 that infiltrate lymph nodes can be distinguished from resident cDCs under non-inflammatory conditions by the expression of MHC class II, CD11c, and peripheral and migratory markers (e.g. CCR7 and maturation markers).
+cDC2 induce different responses, such as activation of ILC2 and TH2 cells against parasites and during asthma, and induction of ILC3 and TH17 immune responses to extracellular bacteria (PMID: 27760337).
+
+* cDC2 activate innate lymphoid cells 2 (ILC2) and TH2 cells and Induce ILC3 and TH17 immune responses.
+
+```{r}
+cDC2vcpDC <- topTable(efit, coef=3, n=length(efit$genes$ID), sort.by = "logFC")
+results <- as_tibble(cDC2vcpDC)
+results$ID <- rownames(cDC2vcpDC)
+
+# add a column of NAs
+results$DElabel <- FALSE
+# if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
+results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "pDC"
+results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "cDC2"
+```
+
+Add gene labels
+
+```{r}
+results$genelabels <- ""
+results$genelabels[results$ID == "Ly6d"] <- "Ly6d"
+results$genelabels[results$ID == "Ccr9"] <- "Ccr9"
+results$genelabels[results$ID == "Cd9"] <- "Cd9"
+results$genelabels[results$ID == "Anxa1"] <- "Anxa1"
+results$genelabels[results$ID == "Anxa2"] <- "Anxa2"
+results$genelabels[results$ID == "Siglech"] <- "Siglech"
+results$genelabels[results$ID == "Ctsl"] <- "Ctsl"
+results$genelabels[results$ID == "Lyz2"] <- "Lyz2"
+```
+
+### Gene interpretation
+
+* Ly6d is expressed in dendritic cells, particularly in plasmacytoid dendritic cells (pDCs) and their precursors.
+* Ly6D is highly expressed in the Ly6D+Siglec-H+ precursor population in mouse bone marrow that gives rise to both conventional dendritic cells (cDCs) and pDCs.
+* ANXA1 acts as an endogenous brake on DC maturation and function, preventing excessive activation of adaptive immunity
+* ANXA2 expressed by tumor cells like NPC suppresses DC function, leading to an immunosuppressive microenvironment that favors tumor growth
+
+## Volcano
+
+```{r volcano_plot}
+plt3 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
+  geom_point(alpha=0.33, size=1.5) +
+  geom_text_repel(size=4, colour="black") +
+  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
+  scale_color_manual(values = c("darkblue", "grey", "darkorange"), name = "Upregulated") +
+  geom_vline(xintercept = 1, linetype="dotted") + 
+  geom_vline(xintercept = -1, linetype="dotted") +
+  theme_Publication()
+plt3
+```
+
+## MAplot
+
+```{r ma_plot}
+plt2 <- ggplot(data=results, aes(x=AveExpr, y=logFC, colour=DElabel)) + 
+  geom_point(alpha=0.75, size=1.5) +
+  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
+  ylab("Log fold change") + xlab("Log counts per million") +
+  scale_color_manual(values = c("darkblue", "grey", "darkorange"), name = "Upregulated") +
+  theme_Publication()
+
+plt2
+```
+
+### Gene set testing
+
+Need to convert geneIDs from ensembl to enterez
+
+```{r}
+geneids <- as.data.frame(v$genes$ID)
+colnames(geneids) <- "ENSEMBL"
+
+geneids$entrez <- mapIds(org.Mm.eg.db, keys = geneids$ENSEMBL, keytype = "ENSEMBL", column = "ENTREZID")
+```
+
+Look at H hallmark gene sets. Only EMT and apoptosis is different and barely so.
+
+```{r}
+load("data/MSigDB/mouse_H_v5p2.rdata")
+idx <- ids2indices(Mm.H,identifiers = geneids$entrez)
+cam.pDC.cDC2 <- camera(v,idx,sm,contrast=contr.matrix[,4])
+head(cam.pDC.cDC2,10)
+```
+
+Visualize as a barplot
+
+```{r geneset_barchart_pDC_cDC2, fig.asp=0.5}
+geom_GeneSet_Barchart(cam.pDC.cDC2) + theme_Publication(base_size = 15)
+```
+
+# Investigate DE genes pDCs from pDC-like {.tabset}
+
+I checked the literature and there is some unknowns about the pre-pDC-like subset and how comitted they are to the pDC lineage.  
+I have samples of pre-pDCs so may as well investigate this difference.
+
+## cDC2 vs pre-pDC-like
+
+```{r}
+cDC2vspDClike <- topTable(efit, coef=4, n=length(efit$genes$ID), sort.by = "logFC")
+results <- as_tibble(cDC2vspDClike)
+results$ID <- rownames(cDC2vspDClike)
+
+# add a column of NAs
+results$DElabel <- FALSE
+# if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
+results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "cDC2"
+results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "pre-pDC-like"
+```
+
+Add gene labels
+
+```{r}
+results$genelabels <- ""
+results$genelabels[results$ID == "Lpl"] <- "Lpl"
+results$genelabels[results$ID == "Gpnmb"] <- "Gpnmb"
+results$genelabels[results$ID == "Mpo"] <- "Mpo"
+results$genelabels[results$ID == "Lyz2"] <- "Lyz2"
+
+results$genelabels[results$ID == "Atp1b1"] <- "Atp1b1"
+results$genelabels[results$ID == "Ly6d"] <- "Ly6d"
+results$genelabels[results$ID == "Atp2b4"] <- "Atp2b4"
+results$genelabels[results$ID == "Irf8"] <- "Irf8"
+```
+
+## Volcano
+
+```{r volcano_cDC_pre_pDClike}
+plt4 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
+  geom_point(alpha=0.33, size=1.5) +
+  geom_text_repel(size=4, colour="black") +
+  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
+  scale_color_manual(values = c("darkblue", "grey", "darkorange"), name = "Upregulated") +
+  geom_vline(xintercept = 1, linetype="dotted") + 
+  geom_vline(xintercept = -1, linetype="dotted") +
+  theme_Publication()
+
+plt4
+```
+
+## pDC vs pre-pDC-like
+
+```{r}
+pDCvspDClike <- topTable(efit, coef=5, n=length(efit$genes$ID), sort.by = "logFC")
+results <- as_tibble(pDCvspDClike)
+results$ID <- rownames(pDCvspDClike)
+
+# add a column of NAs
+results$DElabel <- FALSE
+# if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
+results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "pDC"
+results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "pre-pDC-like"
+```
+
+Add gene labels
+
+```{r}
+results$genelabels <- ""
+results$genelabels[results$ID == "Gpnmb"] <- "Gpnmb"
+results$genelabels[results$ID == "Ccr9"] <- "Ccr9"
+results$genelabels[results$ID == "Sh3bp2"] <- "Sh3bp2"
+results$genelabels[results$ID == "Ly6a"] <- "Ly6a"
+
+results$genelabels[results$ID == "Bub1"] <- "Bub1"
+results$genelabels[results$ID == "Gem"] <- "Gem"
+results$genelabels[results$ID == "Il12a"] <- "Il12a"
+results$genelabels[results$ID == "Ccnd2"] <- "Ccnd2"
+```
+
+## Volcano
+
+```{r volcano_pDC_prepDClike}
+plt5 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
+  geom_point(alpha=0.33, size=1.5) +
+  geom_text_repel(size=4, colour="black") +
+  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
+  scale_color_manual(values = c("grey", "darkblue", "darkorange"), name = "Upregulated") +
+  geom_vline(xintercept = 1, linetype="dotted") + 
+  geom_vline(xintercept = -1, linetype="dotted") +
+  theme_Publication()
+
+plt5
+```
+
+
+# Investigate pre-pDC-like differences from pDCs and cDC2s
+
+Something of interest would be common genes that go up in the differentiation from CDP in both cell types.
+This would not be evident in a head to head DE but can be inferred by comparing theeir DE from the CDP state.
+
+```{r}
+summary(decideTests(efit)) %>% 
+  kable()
+
+cDC2vcpDC <- topTable(efit, coef=3, n=length(efit$genes$ID), sort.by = "logFC", p.value = 0.05, lfc=1)
+cDC2vpDClike <- topTable(efit, coef=4, n=length(efit$genes$ID), sort.by = "logFC", p.value = 0.05, lfc=1)
+pDCvpDClike <- topTable(efit, coef=5, n=length(efit$genes$ID), sort.by = "logFC", p.value = 0.05, lfc=1)
+```
+
+Find genes that are common DE in pDC and cDC2 as they differentiate from CDPs.
+
+```{r}
+common <- intersect(row.names(cDC2vpDClike),
+                          row.names(pDCvpDClike))
+```
+
+## Venn diagram
+
+Interpretation here is:
+
+* cDC2s more distinct from pre-pDC-like cells than pDCs in terms of DE genes
+  + This fits with the naming convention
+* There are only 4 genes DE in all conditions
+
+```{r venn, fig.asp=0.8}
+venn_list <- list(
+  "cDC2 vs pDC" = row.names(cDC2vcpDC), 
+  "cDC2 vs pre-pDC-like" = row.names(cDC2vpDClike),
+  "pDC vs pre-pDC-like" = row.names(pDCvpDClike)
+  )
+
+ggvenn(venn_list,
+       show_elements = F, label_sep = "\n",
+       text_size = 8,
+       show_percentage = FALSE,
+       fill_color = c("navy", "springgreen4", "orchid1")
+       )
+```
+
+What are DE genes in all conditions
+
+```{r}
+all_de <- intersect(common, row.names(cDC2vcpDC))
+```
+
+View their expression.  
+Pretty much all in the order of CDP > cDC2 > pDC
+
+Must be a kind of step-wise increase in gene expression between cell types.
+
+```{r common_violin}
+plotExpression(sce[,sce$Cell_type %in% c("cDC2", "pDC", "pre-pDC_like")], all_de, colour_by = "Cell_type", point_size=2) +
+  theme_Publication(base_size = 16) 
+```
+
+# Conclusion
+
+The results make sense to me. Will confirm with the domain experts.
+ 
+### Session info
+```{r}
+sessionInfo()
+```

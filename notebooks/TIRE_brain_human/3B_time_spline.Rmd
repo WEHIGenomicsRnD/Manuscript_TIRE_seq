@@ -1,0 +1,230 @@
+---
+title: "Human neurosphere time"
+description: "Follow the edgeR manual on time course analysis with splines"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/DE_spline_time/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+
+library(SingleCellExperiment)
+library(tidyverse)
+library(scuttle)
+library(biomaRt)
+library(edgeR)
+library(scater)
+library(splines)
+library(patchwork)
+library(here)
+source(here::here("scripts/R/theme_publication.R"))
+theme_set(theme_Publication(base_size = 14))
+```
+
+## Recap
+
+These are the first experiments where I use version 2 chemistry. Read 2 is now the barcode and UMI. Read 1 is the cDNA. This was done to avoid reading through the TSO on Ilumina read 1
+
+This sequencing run consists of 3 experiments:
+
+1. Test the version 2 protocol with magnetic poly-T Dynabeads [https://au-mynotebook.labarchives.com/share/Piper_Research_Project/MjAuOHwxNzE3NjUvMTYvVHJlZU5vZGUvNDE3OTUxMTA4N3w1Mi44](ELN link])
+2. Benchmark the version 2 protocol with a mixture of human and mouse cell lines Daniel Brown generated [https://au-mynotebook.labarchives.com/share/Piper_Research_Project/MjkuOTAwMDAwMDAwMDAwMDAyfDE3MTc2NS8yMy9UcmVlTm9kZS8yMzM4NDg4MTE1fDc1Ljg5OTk5OTk5OTk5OTk5](ELN link)
+3. Test version 2 protocol with a biological appliation from Zac Moore of Brain Cancer lab [https://au-mynotebook.labarchives.com/share/Piper_Research_Project/MzEuMjAwMDAwMDAwMDAwMDAzfDE3MTc2NS8yNC9UcmVlTm9kZS8zMzczNDM0NjE1fDc5LjE5OTk5OTk5OTk5OTk5](ELN link)
+
+## Notebook aim
+
+Differential expression testing. Use a spline based analysis from the edgeR manual.  
+In notebook 3 I verbatim reproduce analysis Zac Moore sent me.
+
+# Read SCE and extract col data
+
+This object was generated in 2A_Clustering.  
+Here we focus on the 1 ^ 10-5 dose or **10uM**. On the incucyte traces of growth and caspase cleavage this is where there is a mild effect.
+
+So this analysis captures the adaptation effects to be cultured with TMZ for 7 days. Unfortunately there is no 0 timepoint i.e when the cells were seeded.
+
+```{r}
+sce <- readRDS(here::here(
+  "data/TIRE_brain_human/SCEs/", "brainCancer_subset.sce.rds"
+))
+
+dge <- scran::convertTo(sce, type="edgeR")
+
+unique(colData(sce)$Dose_M)
+dose <- c(1.00e-05)
+
+dge <- dge[,dge$samples$Dose_M %in% dose]
+
+tb <- as_tibble(dge$samples)
+```
+
+# Differential expression testing
+
+Have a look at the important metadata.  
+
+```{r}
+tb %>% 
+  dplyr::count(Drug, Day_Exposure, Dose_M) %>% 
+  arrange(Day_Exposure, Dose_M)
+```
+
+Remove genes that are lowly expressed. ~9,000 genes are kept
+
+```{r gene_filter}
+keep <- filterByExpr(dge, group=dge$samples$Day_Exposure, min.count=1)
+dge <- dge[keep,]
+summary(keep)
+```
+
+Correct for composition biases by computing normalization factors with the trimmed mean of M-values method.
+
+```{r norm_factors}
+dge <- calcNormFactors(dge)
+```
+
+Check the MDS plot
+
+```{r}
+limma::plotMDS(dge, labels=dge$samples$Day_Exposure)
+```
+
+## Perform differential expression testing
+
+Use a cubic regression spline on dose with 3 degrees of freedom.
+
+```{r bcv}
+dge$samples$Day_Exposure <- as.numeric(as.character(dge$samples$Day_Exposure))
+splines <- ns(dge$samples$Day_Exposure, df = 2)
+
+design <- model.matrix(~splines, dge$samples)
+head(design)
+```
+
+The three coefficients do not have any particular meaning. Hypothesis testing would only make sense if the three coefficients are assessed together. The advantage of using a cubic spline curve is that it provides more stable fit at the end points compared to a polynomial.
+
+The spline curve with 3 degrees of freedom has 2 knots where cubic polynomials are splined together. In general, choosing a number of degrees of freedom to be in range of 3-5 is reasonable.
+
+### Fit BCV
+
+Compared to the edgeR example on timecourse analysis the biological variation is pretty low.
+
+```{r qld}
+par(mfrow=c(1,2))
+
+dge <- estimateDisp(dge, design)
+summary(dge$trended.dispersion)
+
+plotBCV(dge)
+
+fit <- glmQLFit(dge, design, robust=TRUE)
+summary(fit$var.prior)
+plotQLDisp(fit)
+```
+
+## Timecourse trend analysis {.tabset}
+
+In a dose response experiment, we are looking for genes that change expression level across doses. Here, the design matrix uses 3 natural spline basis vectors to model smooth changes over concentration, without assuming any particular pattern to the trend.  
+We test for a trend by conducting F-tests on 3 df for each gene:
+
+```{r test}
+fit <- glmQLFTest(fit, coef=2:3)
+```
+
+The topTags function lists the top set of genes with most significant dose effects.
+
+```{r}
+results <- as_tibble(as.data.frame(
+  topTags(fit, n=length(fit$genes$Symbol))
+  ))
+results
+```
+
+The total number of genes with significant (5% FDR) changes at different doses can be examined with decideTests.
+
+There are 109 differentially expressed genes across dose.
+
+```{r}
+summary(decideTests(fit))
+```
+
+Note that all three spline coefficients should be tested together in this way. It is not meaningful to replace the F-tests with t-tests for the individual coefficients, and similarly the logFC columns of the top table do not have any interpretable meaning.  
+The trends should instead be interpreted by way of trend plots, as we show now.  
+Finally, we visualize the fitted spline curves for the top four genes. We start by computing the observed and fitted log-CPM values for each gene:
+
+```{r}
+top_genes <- head(results$Symbol,6)
+
+logCPM.obs <- as.data.frame(cpm(dge, log=TRUE, prior.count=fit$prior.count))
+logCPM.obs$ID <- row.names(logCPM.obs)
+logCPM.fit <- as.data.frame(cpm(fit, log=TRUE))
+logCPM.fit$ID <- row.names(logCPM.fit)
+
+# Mung the cpm columns into a single tibble
+lcm.obs <- pivot_longer(logCPM.obs[top_genes,], cols = -ID, names_to = "sample", values_to = "count") %>% 
+  rename(obs_cpm = count)
+lcm.fit <- pivot_longer(logCPM.fit[top_genes,], cols = -ID, names_to = "sample", values_to = "count") %>% 
+  rename(fit_cpm = count)
+
+lcm.obs$fit_cpm <- lcm.fit$fit_cpm
+
+# Add back the sample metadata
+lcm <- left_join(lcm.obs, results[,c("ID", "Symbol")])
+lcm <- left_join(lcm, dge$samples[,c("Well_BC", "Day_Exposure")], by=c("sample" = "Well_BC"))
+```
+
+### Log scale
+
+Generate the plot.  
+It makes more sense to plot x axis in log scale
+
+```{r time_log}
+ggplot(lcm) +
+  geom_point(aes(y = obs_cpm, x=Day_Exposure), color = "black") +
+  geom_smooth(aes(y = fit_cpm, x=Day_Exposure), method = "loess", se = FALSE, color = "red") +
+  xlab("Days 10uM TMZ treatment") + ylab("logCPM") +
+  scale_x_continuous(trans = "log10") + annotation_logticks(sides="b") + 
+  theme_Publication() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_wrap(~ID, scales = "free_y")
+```
+
+## Gene descriptions
+
+* CLU (clusterin) functions as a molecular chaperone with roles in inhibiting apoptosis and facilitating DNA repair; its upregulation may enhance the cells' ability to cope with TMZ-induced DNA damage. 
+* IGFBP5 (insulin-like growth factor binding protein 5) modulates the availability of IGFs, influencing cell proliferation and survival pathways; increased IGFBP5 levels could shift the balance toward cell survival despite the cytotoxic effects of TMZ. 
+* LIPA (lysosomal acid lipase A) is crucial for lipid degradation and energy production; its upregulation may provide essential metabolites to sustain cellular functions under metabolic stress induced by TMZ. 
+* RPH3A (rabphilin 3A), involved in vesicle trafficking and exocytosis, may be upregulated to alter the secretion of factors that promote cell survival or to facilitate the removal of damaged proteins and organelles.
+
+* CLU encodes clusterin, a protein involved in apoptosis regulation, cell survival, and DNA repair. 
+  + In cancer, CLU can contribute to tumor progression and chemoresistance. 
+  + Temozolomide may influence CLU expression, affecting tumor cell survival and resistance, thus impacting the efficacy of the treatment.
+* IGFBP5 may be upregulated in response to temozolomide treatment as part of the cellular response to DNA damage and stress. 
+  + This upregulation can influence the effectiveness of TMZ by affecting apoptotic pathways and cell survival signals
+* LIPA (Lysosomal Acid Lipase A):
+  + LIPA catalyzes lipid degradation in lysosomes, supporting the energy needs of cancer cells. Temozolomide may influence LIPA expression by inducing metabolic stress, leading to changes in lipid metabolism and autophagy, which can affect tumor cell survival mechanisms.
+* RPH3A (Rabphilin 3A):
+  + RPH3A is involved in vesicle trafficking and exocytosis. Abnormal expression can affect secretion of factors that promote tumor growth and metastasis.
+  + Temozolomide may impact RPH3A, altering vesicle trafficking and potentially influencing drug resistance and the efficacy of chemotherapy.
+
+
+### Session info
+```{r}
+sessionInfo()
+```

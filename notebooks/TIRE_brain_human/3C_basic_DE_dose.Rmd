@@ -1,0 +1,455 @@
+---
+title: "Human gliomasphere basic differential expression test"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/DE_dose/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+
+library(SingleCellExperiment)
+library(tidyverse)
+library(scuttle)
+library(biomaRt)
+library(edgeR)
+library(RColorBrewer)
+library(org.Hs.eg.db)
+library(scater)
+library(ggrepel)
+library(pheatmap)
+library(viridis)
+library(ggvenn)
+library(patchwork)
+library(here)
+source(here::here("scripts/R/theme_publication.R"))
+source(here::here("scripts/R/create_geneset_barchart.R"))
+theme_set(theme_Publication())
+```
+
+Heatmap function
+
+```{r}
+create_gene_heatmap <- function(de_results_df, dge_object, font_size = 12, num_genes = 20) {
+  # Subset the genes
+  top_genes <- de_results_df$Symbol[1:num_genes]
+  subset_matrix <- dge_object$logCPM[top_genes, colnames(dge_object$counts)]
+  
+  # Create annotation dataframe
+  sample_info <- dge_object$samples
+  annotation_df <- data.frame(
+    Dose = sample_info$Dose
+  )
+  rownames(annotation_df) <- colnames(subset_matrix)
+  
+  # Reorder gene expression matrix
+  ordered_samples <- order(sample_info$Dose)
+  subset_matrix <- subset_matrix[, ordered_samples]
+  sample_info <- sample_info[ordered_samples, ]
+  
+  # Create the heatmap
+  heatmap <- pheatmap(subset_matrix,
+           scale = "row",
+           cluster_rows = FALSE,
+           cluster_cols = FALSE,
+           color = viridis(50),
+           show_colnames = FALSE,
+           annotation_col = annotation_df,
+           fontsize = font_size,
+           silent = FALSE)
+}
+```
+
+## Recap
+
+These are the first experiments where I use version 2 chemistry. Read 2 is now the barcode and UMI. Read 1 is the cDNA. This was done to avoid reading through the TSO on Ilumina read 1
+
+This sequencing run consists of 3 experiments:
+
+Test version 2 protocol with a biological application from Zac Moore of Brain Cancer lab [https://au-mynotebook.labarchives.com/share/Piper_Research_Project/MzEuMjAwMDAwMDAwMDAwMDAzfDE3MTc2NS8yNC9UcmVlTm9kZS8zMzczNDM0NjE1fDc5LjE5OTk5OTk5OTk5OTk5](ELN link)
+
+## Notebook aim
+
+Differential expression testing. Focus on the genes that vary between doses.
+
+# Read SCE and extract col data
+
+This object was generated in 2A_Clustering.  
+Subset only day 3 timepoint for simplicity
+
+```{r}
+sce <- readRDS(here::here(
+  "data/TIRE_brain_human/SCEs/", "brainCancer_subset.sce.rds"
+))
+
+dge <- scran::convertTo(sce, type="edgeR")
+
+day <- 3
+dge <- dge[,dge$samples$Day_Exposure %in% day]
+
+tb <- as_tibble(dge$samples)
+```
+
+Convert the numerical dose column to a factor. For simplicity sake keep the doses with rounded concentrations.
+
+```{r}
+tb$Dose <- as.factor(tb$Dose_M)
+tb$Dose <- recode(tb$Dose,
+                  "0" = "DMSO",
+                  "1e-04" = "100uM",
+                  "1e-07" = "100nM",
+                  "1e-06" = "1uM",
+                  "1e-05" = "10uM")
+dge$samples$Dose <- tb$Dose
+
+dge <- dge[,dge$samples$Dose %in% c("DMSO", "10uM", "100uM", "1uM", "100nM")]
+dge$samples$Dose <- droplevels(dge$samples$Dose)
+```
+
+# Differential expression testing
+
+Have a look at the important metadata.  
+
+```{r}
+tb %>% 
+  dplyr::count(Drug, Day_Exposure, Dose) %>% 
+  arrange(Day_Exposure, Dose)
+```
+
+Remove genes that are lowly expressed. 12,000 genes are kept
+
+```{r gene_filter}
+keep <- filterByExpr(dge, group=dge$samples$Drug, min.count=1)
+dge <- dge[keep,]
+summary(keep)
+```
+
+Correct for composition biases by computing normalization factors with the trimmed mean of M-values method.
+
+```{r norm_factors}
+dge <- calcNormFactors(dge)
+```
+
+## Perform differential expression testing
+
+Model matrix generation.
+
+```{r bcv}
+design <- model.matrix(~0 + Dose, dge$samples)
+head(design)
+
+dge <- estimateDisp(dge, design)
+summary(dge$trended.dispersion)
+```
+
+Create the contrast matrix. Foucs on the largest changes.
+
+```{r}
+contr.matrix <- makeContrasts(
+   Dose100uM = Dose100uM - DoseDMSO,
+   Dose10uM = Dose10uM - DoseDMSO, 
+   Dose1uM = Dose1uM - DoseDMSO, 
+   Dose100nM = Dose100nM - DoseDMSO, 
+   Dose100uM_vs_10uM = Dose100uM - Dose10uM,
+   levels = colnames(design))
+```
+
+In each contrast, the format is A - B where:
+
+* A represents the condition considered as the "treatment" or point of interest
+* B represents the condition considered as the "control" or baseline
+
+Fit BCV
+
+```{r qld}
+par(mfrow=c(1,2))
+v <- voom(dge, design, plot=TRUE)
+
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=contr.matrix)
+efit <- eBayes(vfit)
+plotSA(efit, main="Final model: Mean-variance trend")
+```
+
+## Differential expression analysis
+
+Check how many genes are differentially expressed. Fewer genes at lower doses which makes sense.
+
+```{r}
+summary(decideTests(efit))
+```
+
+# Visualise differentially expressed genes {.tabset}
+
+## 100uM Dose
+
+```{r}
+hundred_uM <- topTable(efit, coef=1, n=length(efit$genes$ID), sort.by = "logFC")
+results <- as_tibble(hundred_uM)
+results$ID <- rownames(hundred_uM)
+
+# add a column of NAs
+results$DElabel <- FALSE
+# if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
+results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "TMZ"
+results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "DMSO"
+results_hundred <- results
+```
+
+Add gene labels
+
+```{r}
+results$genelabels <- ""
+results$genelabels[results$Symbol == "GDF15"] <- "GDF15"
+results$genelabels[results$Symbol == "FAS"] <- "FAS"
+results$genelabels[results$Symbol == "IGFBP5"] <- "IGFBP5"
+results$genelabels[results$Symbol == "NEAT1"] <- "NEAT1"
+results$genelabels[results$Symbol == "CDKN1A"] <- "CDKN1A"
+results$genelabels[results$Symbol == "PDGFRA"] <- "PDGFRA"
+results$genelabels[results$Symbol == "HMGCS1"] <- "HMGCS1"
+results$genelabels[results$Symbol == "SCN1A"] <- "SCN1A"
+```
+
+### Volcano
+
+```{r volcano_100uM}
+plt1 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
+  geom_point(alpha=0.33, size=1.5) +
+  geom_text_repel(size=4, colour="black") +
+  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
+  scale_color_manual(values = c("darkblue", "grey", "darkorange"), name = "Upregulated") +
+  geom_vline(xintercept = 1, linetype="dotted") + 
+  geom_vline(xintercept = -1, linetype="dotted") +
+  theme_Publication()
+
+plt1
+```
+
+### Generate heatmap
+
+```{r heatmap_100uM}
+dge$logCPM <- edgeR::cpm(dge, log=TRUE, prior.count=1)
+dge_subset <- dge[,dge$samples$Dose == "DMSO" | dge$samples$Dose == "100uM"]
+create_gene_heatmap(de_results_df = results, dge_object = dge_subset, font_size = 12, num_genes=10)
+```
+
+### Gene set testing with camera
+
+Need to convert geneIDs from ensembl to enterez
+
+```{r}
+geneids <- as.data.frame(v$genes$ID)
+colnames(geneids) <- "ENSEMBL"
+
+geneids$entrez <- mapIds(org.Hs.eg.db, keys = geneids$ENSEMBL, keytype = "ENSEMBL", column = "ENTREZID")
+```
+
+Nothing surprising here, cell ycle goes down p53 goes up though very significant.
+
+```{r}
+load("data/MSigDB/human_H_v5p2.rdata")
+idx <- ids2indices(Hs.H,identifiers = geneids$entrez)
+cam.100uM <- camera(v,idx,design,contrast=contr.matrix[,1])
+head(cam.100uM,10)
+```
+
+Visualize the gene set testing.
+
+```{r hallmark_sigs, fig.asp=0.5}
+par(mfrow=c(1,1))
+
+barcodeplot(efit$t[,1], index=idx$HALLMARK_P53_PATHWAY,
+            index2 = idx$HALLMARK_E2F_TARGETS)
+```
+
+Visualize as a barplot
+
+```{r geneset_barchart_100uM}
+geom_GeneSet_Barchart(cam.100uM)
+```
+
+## 10uM Dose
+
+```{r}
+ten_uM <- topTable(efit, coef=2, n=length(efit$genes$ID), sort.by = "logFC")
+results <- as_tibble(ten_uM)
+results$ID <- rownames(ten_uM)
+
+# add a column of NAs
+results$DElabel <- FALSE
+# if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
+results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "TMZ"
+results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "DMSO"
+results_ten <- results
+```
+
+Add gene labels
+
+```{r}
+results$genelabels <- ""
+results$genelabels[results$Symbol == "GDF15"] <- "GDF15"
+results$genelabels[results$Symbol == "FAS"] <- "FAS"
+results$genelabels[results$Symbol == "CDKN1A"] <- "CDKN1A"
+results$genelabels[results$Symbol == "PDGFRA"] <- "PDGFRA"
+results$genelabels[results$Symbol == "FADS2"] <- "FADS2"
+results$genelabels[results$Symbol == "MDM2"] <- "MDM2"
+results$genelabels[results$Symbol == "AL365181.3"] <- "AL365181.3"
+```
+
+### Volcano
+
+```{r volcano_10uM}
+plt2 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
+  geom_point(alpha=0.33, size=1.5) +
+  geom_text_repel(size=4, colour="black") +
+  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
+  scale_color_manual(values = c("darkblue", "grey", "darkorange"), name = "Upregulated") +
+  geom_vline(xintercept = 1, linetype="dotted") + 
+  geom_vline(xintercept = -1, linetype="dotted") +
+  theme_Publication()
+
+plt2
+```
+
+### Generate heatmap
+
+```{r heatmap_10uM}
+dge$logCPM <- edgeR::cpm(dge, log=TRUE, prior.count=1)
+dge_subset <- dge[,dge$samples$Dose == "DMSO" | dge$samples$Dose == "10uM"]
+create_gene_heatmap(de_results_df = results, dge_object = dge_subset, font_size = 12, num_genes=10)
+```
+
+### Gene set testing with camera
+
+Same pathways as 100uM.
+
+```{r}
+cam.10uM<- camera(v,idx,design,contrast=contr.matrix[,2])
+head(cam.10uM,10)
+```
+
+Generate gene set barchart
+
+```{r geneset_barchart_10uM, fig.asp=0.5}
+geom_GeneSet_Barchart(cam.10uM)
+```
+
+## Compare 100uM Dose with 10uM dose
+
+With the spline analysis of dose in notebook 3A_dose_spline there is a maximum gene expression effect at 10uM that declines at 100uM.  
+My interpretation is that cells are adapting to TMZ up to the 10uM dose then most are being killed with only the survivors being alive and available to have their transcriptome sequenced at 100uM dose.
+
+So this comparison covers the small set of surviving cells at 100uM vs the majority of adapted cells at 10uM.
+
+```{r}
+hundred_v_ten <- topTable(efit, coef=5, n=length(efit$genes$ID), sort.by = "logFC")
+results <- as_tibble(hundred_v_ten)
+results$ID <- rownames(hundred_v_ten)
+
+# add a column of NAs
+results$DElabel <- FALSE
+# if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
+results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "100uM"
+results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "10uM"
+```
+
+Add gene labels
+
+```{r}
+results$genelabels <- ""
+results$genelabels[results$Symbol == "MDM2"] <- "MDM2"
+results$genelabels[results$Symbol == "E2F7"] <- "E2F7"
+results$genelabels[results$Symbol == "DDIT3"] <- "DDIT3"
+results$genelabels[results$Symbol == "PTP4A1"] <- "PTP4A1"
+```
+
+### Volcano
+
+Not many differentially expressed genes here. Likely the gene expression is pretty subtle.
+
+```{r volcano_100_vs_10uM}
+plt2 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
+  geom_point(alpha=0.33, size=1.5) +
+  geom_text_repel(size=6, colour="black") +
+  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
+  scale_color_manual(values = c("darkblue", "grey", "darkorange"), name = "Upregulated") +
+  geom_vline(xintercept = 1, linetype="dotted") + 
+  geom_vline(xintercept = -1, linetype="dotted") +
+  geom_hline(yintercept = 1, linetype="dotted") +
+  theme_Publication()
+
+plt2
+```
+
+### Gene set testing with camera
+
+Clearly enriched p53 pathway in the 10uM dose (left). On the right 100uM, likely stemness phenotype which is consistent with the literature.
+
+```{r}
+cam.100_vs_10uM <- camera(v,idx,design,contrast=contr.matrix[,5])
+head(cam.100_vs_10uM,10)
+```
+
+Generate gene set barchart
+
+```{r geneset_barchart_100_vs_10uM}
+geom_GeneSet_Barchart(cam.100_vs_10uM)
+```
+
+## Venn digram 100uM vs 10uM dose
+
+All the genes are in common.
+
+```{r venn, fig.asp=0.8}
+hundred_v_dmso <- topTable(efit, coef=1, n=length(efit$genes$ID), sort.by = "logFC", p.value = 0.05, lfc=1)
+ten_v_dmso <- topTable(efit, coef=2, n=length(efit$genes$ID), sort.by = "logFC", p.value = 0.05, lfc=1)
+
+
+venn_list <- list(
+  "100uM vs DMSO" = row.names(hundred_v_dmso), 
+  "10uM vs DMSO" = row.names(ten_v_dmso)
+  )
+
+ggvenn(venn_list,
+       show_elements = F, label_sep = "\n",
+       text_size = 8,
+       show_percentage = FALSE,
+       fill_color = c("navy", "springgreen4")
+       )
+```
+
+What are the 8 genes that are DE in 100uM vs DMSO?
+
+```{r}
+# Extract the gene IDs from both data frames
+genes_hundred <- hundred_v_dmso$ID
+genes_ten <- ten_v_dmso$ID
+
+# Find genes that are in hundred_v_dmso but not in ten_v_dmso
+unique_genes <- setdiff(genes_hundred, genes_ten)
+
+# To get the rows from hundred_v_dmso that are not in ten_v_dmso
+hundred_v_dmso[hundred_v_dmso$ID %in% unique_genes, ]$Symbol
+```
+
+### Session info
+```{r}
+sessionInfo()
+```

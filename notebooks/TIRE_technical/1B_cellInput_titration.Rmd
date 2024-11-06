@@ -1,0 +1,244 @@
+---
+title: "TIRE cell input titration"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/cellInput_titrate/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+
+library(SingleCellExperiment)
+library(tidyverse)
+library(scuttle)
+library(scater)
+library(platetools)
+library(patchwork)
+library(here)
+source(here::here("scripts/R/theme_publication.R"))
+theme_set(theme_Publication())
+```
+
+# TIRE cell input titration
+
+## Aim
+
+Investigate the dose response relationship of cell inputs to library size etc
+
+## Samples
+ 
+A serial dilution will be prepared on the day of the experiment.
+
+* Human HEK293T
+* Mouse NIH3T3
+* No template control
+
+[ELN entry](https://au-mynotebook.labarchives.com/share/Daniel_RnD_Projects/NDMyLjkwMDAwMDAwMDAwMDAzfDY4MTk3LzMzMy9UcmVlTm9kZS8yMjA0NzM2OTgzfDEwOTguODk5OTk5OTk5OTk5OQ==)
+
+Standard TSO where UMI on TSO followed by spacer. Well barcode in line with read 1
+
+## Data to read in
+
+I sequenced these libraries with the configuration
+
+* Read 1 70bp
+* Read 2 52bp
+* Index read 1 and 2 8bp each
+
+## Read SCE and extract col data
+
+```{r}
+sce <- readRDS(here::here(
+   "data/TIRE_technical/cellInputs_basic.sce.rds"))
+
+tb <- as_tibble(colData(sce))
+
+# Keep only the 8 PCR samples as these performed best and had most reads
+tb <- tb %>% 
+  filter(PCR_cycles == 8)
+```
+
+# Check on plate map representation {.tabset}
+
+Plot on plate map
+
+## Samples
+
+```{r plate_sample}
+
+p1 <- platetools::raw_map(data=tb$Sample, 
+                     well=tb$Well, 
+                     plate=96)
+
+p2 <- platetools::raw_map(data=log(tb$sum+1), 
+                     well=tb$Well, 
+                     plate=96)
+
+p1 / p2
+```
+
+# All replicate dot plots by RNA amount {.tabset}
+
+## Library size log
+
+```{r all_libSize_log, fig.cap="Library size in deduplicated UMIs"}
+plt1 <- ggplot(tb,
+             aes(x = Amount+1, y= sum+1, colour = Sample)) + 
+  geom_point(size=2) + 
+  ylab("Library Size (UMIs)") + 
+  xlab("Cell equivalents") +
+  geom_smooth(method='lm', se = FALSE) +
+  scale_y_continuous(trans='log10') +
+  scale_x_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "l") +
+  annotation_logticks(base =10, sides = "b") +
+  scale_fill_brewer(palette = "Dark2") +
+  facet_wrap(~Replicate, ncol=1)
+
+plt1
+```
+
+## Library size natural scale
+
+```{r all_libSize_nat, fig.cap="Library size in deduplicated UMIs"}
+plt2 <- ggplot(tb,
+             aes(x = Amount, y= sum, colour = Sample)) + 
+  geom_point(size=2) + 
+  ylab("Library Size (UMIs)") + 
+  xlab("Cell equivalents") +  
+  scale_fill_brewer(palette = "Dark2") +
+  facet_wrap(~Replicate, ncol=1)
+
+plt2
+```
+
+## Detected genes
+
+```{r all_detected_genes_p, fig.cap="Number of detected genes"}
+plt3 <- ggplot(tb,
+             aes(x = Amount, y= detected, colour = Sample)) + 
+  geom_point(size=2) + 
+  ylab("Genes detected") + 
+  xlab("Cell equivalents") +
+  scale_fill_brewer(palette = "Dark2") +
+  facet_wrap(~Replicate, ncol=1)
+
+plt3
+```
+
+# Show only 3rd replicate
+
+Only replicate 1 HEK293T is problematic. However for the sake of clarity in publication I will 2nd replicate
+
+```{r}
+tb_orig <- tb
+
+tb <- tb %>% 
+  filter(Replicate == "Two")
+
+tb$Amount <- tb$Amount / 1000
+tb$Amount <- as.factor(tb$Amount)
+```
+
+## Library size log
+
+```{r libSize_log, fig.cap="Library size in deduplicated UMIs"}
+plt1 <- ggplot(tb,
+             aes(x = Amount, y= sum+1, colour = Sample)) + 
+  geom_point(size=2) + 
+  ylab("Library Size (UMIs)") + 
+  xlab("Cell equivalents (000s)") +
+  geom_smooth(method='lm', se = FALSE) +
+  scale_y_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "l") +
+  scale_fill_brewer(palette = "Dark2")
+
+plt1
+```
+
+## Library size natural scale
+
+```{r libSize_nat, fig.cap="Library size in deduplicated UMIs"}
+plt2 <- ggplot(tb,
+             aes(x = Amount, y= sum, colour = Sample)) + 
+  geom_point(size=2) + 
+  ylab("Library Size (UMIs)") + 
+  xlab("Cell equivalents (000s)") +  
+  scale_fill_brewer(palette = "Dark2")
+
+plt2
+```
+
+## Detected genes
+
+```{r detected_genes_p, fig.cap="Number of detected genes"}
+plt3 <- ggplot(tb,
+             aes(x = Amount, y= detected, colour = Sample)) + 
+  geom_point(size=2) + 
+  geom_smooth(method='lm', se = FALSE) +
+  ylab("Genes detected") + 
+  xlab("Cell equivalents (000s)") +
+  scale_fill_brewer(palette = "Dark2")
+
+plt3
+```
+
+# Human and mouse mapping {.tabset}
+
+## Barnyard natural scale
+
+```{r barnyard}
+p1 <- ggplot(tb, aes(x=subsets_Mouse_sum, y=subsets_Human_sum, colour=Sample)) + 
+    geom_point(size=2) +
+  xlab("Mouse library size") + 
+  ylab("Human library size") +
+  ylim(0,2e6) + xlim(0,2e6) +
+  scale_colour_brewer(palette = "Dark2")
+
+p1
+```
+
+## Barnyard log scale
+
+* Looks deceptive and not how anyone else shows this.  
+* Replicate 2 nd 3 look very clean even in log representation
+
+```{r species_counts_log}
+p2 <- ggplot(tb, aes(y=subsets_Human_sum, x=subsets_Mouse_sum, colour=Sample)) + 
+    geom_point(size=2) +
+  xlab("Mouse library size") + 
+  ylab("Human library size") +
+  scale_y_continuous(trans='log10') + scale_x_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "bl") +
+  scale_colour_brewer(palette = "Dark2")
+
+p2
+```
+
+# Conclusion
+
+* Replicate 1 looks compromised in terms of contamination especially one of the wells
+* Replicate 1 HEK293T has contamination issues
+* Otherwise all other wells within replicate 2 and replicate 3 have worked.
+
+### Session info
+```{r}
+sessionInfo()
+```

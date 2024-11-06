@@ -1,0 +1,243 @@
+---
+title: "Human T cell generate Human SCE object"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/generateSCE/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+suppressPackageStartupMessages({
+  library(SingleCellExperiment)
+  library(tidyverse)
+  library(scuttle)
+  library(scran)
+  library(Matrix)
+  library(here)
+})
+```
+
+# Intro Human T cell culture experiment
+
+## Recap
+
+This a head to head comparison of the same sample of human T cells profiled with custom Prime-seq and novel TIRE-seq.
+
+* Yasmin has prepared T cells sorted for CD4 and CD8 subsets across multiple days
+* I asked her to prepare a separate plate for each time point for each timepoint.
+* Cells are sorted in media : 2x Qiagen TCL buffer in a 1:1 ratio
+* Therefore I consolidated the timepoints into 2x 96w plates prior to RNA extraction.
+* When I did the RNA extraction I replated into a deep well plate:
+
+## Notebook aim
+
+Focus analysis only on T cell samples, excluding my HEK293Ts and NIH3T3s that I also used in thsi experiment.
+
+## Lab notes
+
+### Yasmin
+
+* Making the plates [https://au-mynotebook.labarchives.com/share/Daniel_RnD_Projects/NDY4LjB8NjgxOTcvMzYwL1RyZWVOb2RlLzM4NDYzNDM1NTh8MTE4OC4w](ELN)
+* The library preparation [https://au-mynotebook.labarchives.com/share/Daniel_RnD_Projects/NDc1Ljh8NjgxOTcvMzY2L1RyZWVOb2RlLzQxMTM0Njc2MTJ8MTIwNy44](ELN)
+
+* Plate 1 = A1
+* Plate 2 = A2
+
+Prime-seq requires RNA purification therefore I extracted the samples with a magnetic SPRI bead bassed protocol.
+
+I used Sam's protocol with the slight difference of 7uL buffer TCL + 14uL water prior to SPRI bead addition. 
+I read buffer TCL should be diluted from a SMART-Seq protocol
+
+* All wells have 10,000 cells in 50ul total volume.
+* Comprised of 25ul cells in media and 25ul 2x buffer TCL
+    + The cell concentration is therefore 200 cells/uL.
+    + Assuming T cells have 1pg RNA per cell = 200pg/uL.
+* I had an issue priming the water to the Bluewasher for dispensing 8uL water prior to DNase treatment
+* RNA samples were dried for ~10min before I added water manually
+* All other steps completed successfully
+* I checked 8 samples by RNA HS Qubit randomly. 
+* All were below detected range of 1ng/uL
+* Sam said this is to be expected for low inputs and minibulk would still work.
+
+# Generate SCE object custom Prime-seq
+
+## Read zUMI object
+
+I use a pipeline called [zUMIs](https://github.com/sdparekh/zUMIs/wiki) to preprocess the data. This takes the fastq sequencing reads and outputs a count matrix where the columns are samples and the rows are genes.
+
+These outputs were sequenced in the same runs as the splicing inhibitor 2nd experiment.
+
+```{r path}
+path <- here::here("data/GenomicsRnD/S000514/zUMI_outputs/expression/splicing_Expt2_S000493.dgecounts.rds")
+mapping <- read_tsv(
+  "data/GenomicsRnD/S000514/zUMI_outputs/stats/splicing_Expt2_S000493.readspercell.txt",
+)
+gene_lookup <- read_tsv(here::here(
+  "data/GenomicsRnD/S000514/zUMI_outputs/expression/splicing_Expt2_S000493.gene_names.txt"
+))
+
+cars <- read_csv(here::here(
+  "metadata/S000553/YN_Prime_metadata_v2.csv"
+  ))
+cars$Replicate <- as.factor(as.character(cars$Replicate))
+```
+
+Read data
+
+```{r read_data}
+zUMI<- readRDS(path)
+
+ds_names <- names(zUMI[["umicount"]][["exon"]][["downsampling"]])
+
+# Check the number of samples for each downsampling
+for (n in ds_names) {
+  print(n)
+  print(dim(zUMI[["umicount"]][["exon"]][["downsampling"]][[n]]))
+}
+
+counts <- zUMI[["umicount"]][["exon"]][["all"]]
+dim(counts)
+```
+
+## Attach metadata
+
+I generated this manually based on the 2D plate map I wrote in Excel and added the sample barcodes with Excel vlookup.
+
+Need to populate the rest of the metadata fields by splitting the sample ID column. 
+
+```{r}
+cars$Subset <- str_split(cars$Sample_ID, "_", simplify = TRUE)[,1]
+cars$Receptor <- str_split(cars$Sample_ID, "_", simplify = TRUE)[,2]
+cars$Donor <- str_split(cars$Sample_ID, "_", simplify = TRUE)[,3]
+cars$Timepoint <- str_split(cars$Sample_ID, "_", simplify = TRUE)[,4]
+
+cars$Donor <- gsub(pattern = "D", replacement = "Donor_", cars$Donor)
+cars$Timepoint <- gsub(pattern = "T", replacement = "Day_", cars$Timepoint)
+cars$Cell_line <- "CAR"
+
+cars %>% 
+  dplyr::count(Subset, Donor, Timepoint, Receptor) 
+```
+
+Join the mapping statistics for this experiment and join to the main sample metadata.
+
+```{r mapping_rate}
+mapping <- mapping %>% 
+  group_by(RG) %>% 
+  pivot_wider(names_from = type, values_from = N) %>% 
+  dplyr::mutate(
+    Reads = rowSums(across(where(is.numeric))),
+    Mapped = 100 - (Unmapped / Reads * 100),
+    Exon_Map = (Exon / Reads) * 100
+    )
+
+meta_data <- left_join(cars, mapping,
+                by = c("Sample_BC" = "RG"))
+```
+
+Need to reorder the metadata to match count data!
+Annoyingly the order of samples is different in the pipeline compared to my metadata.
+
+```{r}
+keep_samples <- intersect(colnames(counts), meta_data$Sample_BC)
+discard_samples <- setdiff(colnames(counts), meta_data$Sample_BC)
+
+dropped <- meta_data[!meta_data$Sample_BC %in% keep_samples,]
+counts <- counts[,keep_samples]
+meta_data <- meta_data[meta_data$Sample_BC %in% keep_samples,]
+
+meta_data <- meta_data %>% 
+  arrange(Sample_BC)
+
+```
+
+Check what samples were missing from the count matrix.  A single sample with the other replicates remaining
+
+```{r}
+dropped$Sample_ID
+```
+
+## Convert to SCE
+
+[SingleCellExperiment](https://bioconductor.org/packages/devel/bioc/vignettes/SingleCellExperiment/inst/doc/intro.html) is the data structure I primarily use in my analysis. It is meant for single-cell RNA-Seq but has many convenience functions that make it applicable for shallow bulk RNA sequencing like I am doing this project.
+
+The count matrix based on sequencing reads is joined with the experimental data into a single object. As I calculate quality control metrics and dimension reduction these extra data structures are added to the SCE.
+
+```{r save_base}
+sce <- SingleCellExperiment(assays=list(counts=counts),
+       colData = meta_data)
+
+sce_base <- sce
+```
+
+## Add Gene IDs and locations
+
+Add gene symbol to human. For whatever reason the zUMI pipeline emits gene IDs which are unique strings. Some gene symbols are non-unique and can change from genome version.
+
+```{r}
+gene_lookup <- gene_lookup %>% 
+  arrange(gene_id)
+
+gene_id <- as_tibble(row.names(sce))
+colnames(gene_id) <- "gene_id"
+
+geneID <- left_join(gene_id, gene_lookup,
+                     by=join_by(gene_id))
+
+rowData(sce)$ID <- geneID$gene_id
+rowData(sce)$Symbol <- geneID$gene_name
+row.names(sce) <- rowData(sce)$Symbol
+```
+
+## Compute QC metrics
+
+Add per cell QC adds the QC info to the colData of the sce. This is I will visualise in other notebooks.
+
+```{r}
+is.mito.alt <- grepl("^MT", rowData(sce)$Symbol)
+sce <- addPerCellQC(sce, subsets=list(Mito=is.mito.alt))
+sce <- addPerFeatureQCMetrics(sce)
+```
+
+## Save finalised SCE
+
+```{r saveRDS}
+saveRDS(sce, here::here(
+  "data/TIRE_Tcell/SCEs/Downsample", "prime_tcell_ds_basic.sce.rds"))
+
+tb <- as_tibble(colData(sce))
+
+write_csv(tb, here::here(
+  "data/TIRE_Tcell/Matrices/Downsample", "prime_tcell_ds_qc.csv"))
+```
+
+Save as a dgelist object
+
+```{r}
+dge <- convertTo(sce, type="edgeR")
+
+saveRDS(dge, here::here(
+  "data/TIRE_Tcell/Matrices/Downsample", "prime_tcell.DGEList.rds"))
+```
+
+### Session info
+```{r}
+sessionInfo()
+```

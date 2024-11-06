@@ -1,0 +1,228 @@
+---
+title: "Generate SCE object UHRR TIREseq"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/generateSCE/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+
+library(tidyverse)
+library(scuttle)
+library(scran)
+library(scater)
+library(here)
+library(patchwork)
+source(here::here("scripts/R/theme_publication.R"))
+theme_set(theme_Publication())
+```
+
+# UHRR TIRE-Seq experiment
+
+## Design
+
+I ordered QuantiGene Reagent - Universal Human Reference RNA (1ug/uL) 10uL
+
+* Catalogue QS0639
+* Lot 400888-000
+  + I then diluted to 100ng/uL based on the recorded conc on the tube
+  + I made a 1:10 dilution of 100ng/uL and measure by Qubit
+  + Measured to be 14.0ng/uL
+
+UHRR experiment mixing:
+
+* 2.8uL of 100ng/uL in 127.8uL * 5uL in the assay = 11ng input per replicate
+ERCC:
+* 2.5uL of 1:1000 dilution in 127.8uL * 5uL per assay = 1:10,224 dilution
+
+## ELN details
+
+[ELN](https://au-mynotebook.labarchives.com/share/Daniel_RnD_Projects/NDg0LjkwMDAwMDAwMDAwMDAzfDY4MTk3LzM3My9UcmVlTm9kZS8xOTIwNTQyMjAzfDEyMzAuODk5OTk5OTk5OTk5OQ==)
+
+* UHRR:
+    + 2.8uL of 100ng/uL in 127.8uL * 5uL in the assay = 11ng input per replicate
+* ERCC:
+    + 2.5uL of 1:1000 dilution in 127.8uL * 5uL per assay = 1:10,224 dilution
+
+## Preeproceessing details
+
+Of note the gene annotation is Gencodee v35 as per the Prime-Seq publication. There are many more genes annotated here than ensembl which is what I typically use.
+
+# Generate count matrices for downstream analysis {.tabset}
+
+## Combined human and mouse Brain Cancer
+
+Read in the sample sheets and metadata
+
+```{r}
+gene_names <- read_tsv(here::here("data/GenomicsRnD/S000514/zUMI_outputs/expression/TIRE_UHRR_Hs.gene_names.txt"))
+
+meta_data <- read_csv(here::here(
+  "metadata/S000432", "brainCancer_sample_metadata_v2.csv"))
+
+mapping <- read_tsv(here::here(
+  "data/GenomicsRnD/S000514/zUMI_outputs/stats/TIRE_UHRR_Hs.readspercell.txt"
+))
+  
+zUMI <- here::here("data/GenomicsRnD/S000514/zUMI_outputs/expression/TIRE_UHRR_Hs.dgecounts.rds")
+
+```
+
+Read the zUMI output
+
+```{r read_zUMI_brain}
+
+zUMI<- readRDS(zUMI)
+
+ds_names <- names(zUMI[["umicount"]][["exon"]][["downsampling"]])
+
+# Check the number of samples for each downsampling
+for (n in ds_names) {
+  print(n)
+  print(dim(zUMI[["umicount"]][["exon"]][["downsampling"]][[n]]))
+}
+
+counts <- zUMI[["umicount"]][["exon"]][["downsampling"]][["downsampled_10000000"]]
+all_counts <- zUMI[["umicount"]][["exon"]][["all"]]
+dim(counts)
+```
+
+### Attach metadata
+
+All samples are represented in the count matrix and metadata.  
+In the pipeline I used 8bp of the well barcode sequence
+The Amount column is in thousands of cells per uL so correct this.
+
+```{r}
+meta_data %>% 
+  select(Well_BC, Plate_Seq, Sample_BC)
+```
+
+Attach mapping rate metadata
+
+```{r mapping_rate}
+mapping <- mapping %>% 
+  group_by(RG) %>% 
+  pivot_wider(names_from = type, values_from = N) %>% 
+  mutate(
+    Reads = rowSums(across(where(is.numeric))),
+    Mapped = 100 - (Unmapped / Reads * 100),
+    Exon_Map = (Exon / Reads) * 100
+    )
+```
+
+Subset the sample barcodes for those used in the experiment.
+
+```{r}
+keep_samples <- colnames(zUMI$umicount$exon$downsampling$downsampled_10000000)
+
+counts <- counts[,keep_samples]
+meta_data <- mapping[mapping$RG %in% keep_samples,]
+
+meta_data <- meta_data %>% 
+  arrange(RG)
+
+meta_data <- DataFrame(meta_data)
+row.names(meta_data) <- meta_data$RG
+```
+
+### Convert to SCE
+
+```{r}
+sce <- SingleCellExperiment(assays=list(counts=counts),
+       colData = meta_data)
+```
+
+### Split ERCCs
+
+Alt experiments enables ERCC, CITE-Seq hashtag data etc to be split from the main gene expression matrix.  
+
+Can use *swapAltExp()* to change around the main slot.
+
+```{r}
+is.ERCC <- grepl("ERCC-", rownames(sce))
+sce <- splitAltExps(sce, ifelse(is.ERCC, "ERCC", "gene"))
+altExpNames(sce)
+```
+
+Add gene symbol to human
+
+```{r}
+gene_names <- gene_names %>% 
+  arrange(gene_id)
+
+# Fix Gencode mito naming
+gene_names$gene_name <- gsub(x = gene_names$gene_name, pattern = "^MTT", "MT")
+
+gene_id <- as_tibble(row.names(sce))
+colnames(gene_id) <- "gene_id"
+
+geneID <- left_join(gene_id, gene_names,
+                     by=join_by(gene_id))
+
+rowData(sce)$ID <- geneID$gene_id
+rowData(sce)$Symbol <- geneID$gene_name
+row.names(sce) <- geneID$gene_name
+```
+
+### Compute QC metrics
+Add per cell QC adds the QC info to the colData of the sce.
+
+```{r}
+is.mito.alt <- grepl("^MT", row.names(sce))
+
+sce <- addPerCellQC(sce, subsets=list(
+  Mito=is.mito.alt))
+sce <- addPerFeatureQC(sce)
+```
+
+Add all counts object
+
+```{r}
+all_counts <- all_counts[,keep_samples]
+altExp(sce, "AllReads") <- SingleCellExperiment(assays=list(counts=all_counts))
+```
+
+### Save SCE with quality control
+
+```{r}
+saveRDS(sce, here::here(
+  "data/TIRE_UHRR/SCEs", "unhrr_basic.sce.rds"))
+
+tb <- as_tibble(colData(sce))
+
+write_csv(tb, here::here(
+  "data/TIRE_UHRR/Matrices/", "uhrr_coldata.csv"))
+```
+
+Save as a dgelist object
+
+```{r}
+dge <- convertTo(sce, type="edgeR")
+
+saveRDS(dge, here::here(
+  "data/TIRE_UHRR/SCEs", "uhrr.DGEList.rds"))
+```
+
+### Session info
+```{r}
+sessionInfo()
+```
