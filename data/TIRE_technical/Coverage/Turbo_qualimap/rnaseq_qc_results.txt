@@ -1,0 +1,56 @@
+RNA-Seq QC report
+-----------------------------------
+
+>>>>>>> Input
+
+    bam file = /vast/scratch/users/brown.d/S000424/zUMI_temp/G000278_230620-testLysisBuffers-Hs.filtered.Aligned.GeneTagged.sorted.bam
+    gff file = /vast/scratch/users/brown.d/S000424/zUMI_temp/G000278_230620-testLysisBuffers-Hs.final_annot.gtf
+    counting algorithm = uniquely-mapped-reads
+    protocol = non-strand-specific
+    5'-3' bias region size = 100
+    5'-3' bias number of top transcripts = 1000
+
+
+>>>>>>> Reads alignment
+
+    reads aligned  = 87,000,400
+    total alignments = 87,000,400
+    secondary alignments = 0
+    non-unique alignments = 21,366,460
+    aligned to genes  = 43,437,732
+    ambiguous alignments = 2,826,516
+    no feature assigned = 18,934,315
+    not aligned = 5,855,272
+    SSP estimation (fwd/rev) = 0.15 / 0.85
+
+
+>>>>>>> Reads genomic origin
+
+    exonic =  43,437,732 (69.64%)
+    intronic = 13,387,396 (21.46%)
+    intergenic = 5,546,919 (8.89%)
+    overlapping exon = 3,734,079 (5.99%)
+
+
+>>>>>>> Transcript coverage profile
+
+    5' bias = 0.31
+    3' bias = 0.3
+    5'-3' bias = 1.02
+
+
+>>>>>>> Junction analysis
+
+    reads at junctions = 11,929,254
+
+    AGGT : 9.19%
+    AGAA : 5.57%
+    AGCT : 4.91%
+    CCCT : 3.85%
+    ACCT : 3.19%
+    AGGA : 2.5%
+    TCCT : 2.43%
+    ATCT : 2.27%
+    AGAT : 2.1%
+    AGGC : 1.88%
+    AACA : 1.83%

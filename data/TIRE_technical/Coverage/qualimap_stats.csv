@@ -1,0 +1,13 @@
+﻿feature,count,percent,protocol
+exonic,"43,437,732",69.64,TIRE shortRead
+intronic,"13,387,396",21.46,TIRE shortRead
+intergenic,"5,546,919",8.89,TIRE shortRead
+overlappingexon,"3,734,079",5.99,TIRE shortRead
+exonic,"37,726,638",71.53,Prime shortRead
+intronic,"6,766,553",12.83,Prime shortRead
+intergenic,"8,246,958",15.64,Prime shortRead
+overlappingexon,"1,319,476",2.5,Prime shortRead
+exonic,"9,520,166",12.44,Prime longRead
+intronic,"47,453,052",62,Prime longRead
+intergenic,"19,561,445",25.56,Prime longRead
+overlappingexon,"42,024,102",54.91,Prime longRead
