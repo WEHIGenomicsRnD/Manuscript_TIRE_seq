@@ -345,7 +345,6 @@ Visualize as a barplot
 geom_GeneSet_Barchart(cam.day7_3)
 ```
 
-
 ### Session info
 ```{r}
 sessionInfo()
