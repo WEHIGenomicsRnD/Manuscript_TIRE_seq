@@ -206,7 +206,7 @@ results <- as_tibble(hundred_uM)
 results$ID <- rownames(hundred_uM)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "TMZ"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "DMSO"
@@ -293,7 +293,7 @@ results <- as_tibble(ten_uM)
 results$ID <- rownames(ten_uM)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "TMZ"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "DMSO"
@@ -364,7 +364,7 @@ results <- as_tibble(hundred_v_ten)
 results$ID <- rownames(hundred_v_ten)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "100uM"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "10uM"

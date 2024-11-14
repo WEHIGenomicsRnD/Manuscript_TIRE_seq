@@ -265,10 +265,10 @@ pca_tb$Drug <- substr(x = sce$Drug, start = 1, stop = 1)
 ggplot(pca_tb, aes(x=PC1, y=PC2, colour=Day_Exposure, label=Drug)) +
   geom_text(size=4.5) +
   xlab("PC1 (35%)") + ylab("PC2 (5%)") +
-  scale_colour_brewer(palette = "Dark2") +
+  scale_colour_brewer(palette = "Dark2", name = "Days") +
   theme_Publication()
-  
 ```
+
 
 Conventional visualisation
 

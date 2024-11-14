@@ -75,7 +75,6 @@ The number of reads is `r sum(mapping$N)`
 Read the zUMI output
 
 ```{r read_zUMI}
-
 zUMI_mixed <- readRDS(here::here
                 ("data/GenomicsRnD/S000514/zUMI_outputs/expression/TIRE_DCs_Mm.dgecounts.rds"))
 

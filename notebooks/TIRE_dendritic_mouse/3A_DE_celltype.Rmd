@@ -467,6 +467,37 @@ ggvenn(venn_list,
        )
 ```
 
+## Statistical test of DE genes pDC vs cDC2
+
+The following code was written by Claude.ai.  
+Its recmondadtion was Chi Squared test
+
+```{r}
+# Create the observed frequencies
+group1 <- 381  # cDC2 vs pDC total (216 + 128 + 33 + 4)
+group2 <- 630  # cDC2 vs pre-pDC-like total (467 + 128 + 31 + 4)
+
+# Create a matrix of observed frequencies
+observed <- c(group1, group2)
+names(observed) <- c("cDC2_vs_pDC", "cDC2_vs_prePDClike")
+
+# Perform chi-square test
+result <- chisq.test(observed)
+
+# Print results
+print(result)
+
+# Calculate proportion in each group for interpretation
+total <- sum(observed)
+prop1 <- group1/total
+prop2 <- group2/total
+
+cat("\nProportions:\n")
+cat("cDC2 vs pDC:", round(prop1 * 100, 2), "%\n")
+cat("cDC2 vs pre-pDC-like:", round(prop2 * 100, 2), "%\n")
+```
+
+
 What are DE genes in all conditions
 
 ```{r}

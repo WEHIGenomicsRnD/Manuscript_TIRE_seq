@@ -30,7 +30,7 @@ library(tidyverse)
 library(scuttle)
 library(here)
 source(here::here("scripts/R/theme_publication.R"))
-theme_set(theme_Publication(base_size = 16))
+theme_set(theme_Publication())
 ```
 
 # A protocol comparison of Prime-seq and TIRE-seq on HEK293Ts
@@ -68,6 +68,7 @@ plt1 <- ggplot(data=tb,
   geom_line(size=1.25) + geom_point(size=2) +
   geom_errorbar(aes(ymin=med_gene-mad_gene, ymax=med_gene+mad_gene), width=.1, size=1.25) +
   scale_colour_brewer(type="Qualitative", palette = "Dark2") +
+  ggtitle("Cell Lysate") +
   xlab("Reads per sample") + ylab("Median genes detected")
 
 plt1
@@ -101,37 +102,6 @@ plt2 <- ggplot(data=tb,
 
 plt2
 ```
-
-# Investigate extra genes detected TIRE-seq
-
-Reaad counts downsampled to 2M
-
-#!!!HERE
-
-```{r}
-dat_prime <- here::here("data/GenomicsRnD/PrimeSeq/Bulk_opt_lysis_test_2_HEK.dgecounts.rds")
-zUMI_prime <- readRDS(dat_prime)
-zUMI_prime <- zUMI_prime$umicount$exon$downsampling$downsampled_2000000
-
-dat_tire <- here::here("/stornext/Projects/GenomicsRnD/brown.d/S000514/zUMI_outputs/expression/TIRE_HEK_gencode.dgecounts.rds")
-zUMI_tire <- readRDS(dat_tire)
-zUMI_tire <- zUMI_tire$umicount$exon$downsampling$downsampled_2000000
-```
-
-Look at what extra genes are detected for TIRE-seq
-
-```{r}
-tire_prime <- intersect(
-  row.names(zUMI_prime),
-  row.names(zUMI_tire)
-)
-
-in_prime <- row.names(zUMI_prime)[!row.names(zUMI_prime) %in% tire_prime]
-in_tire <- row.names(zUMI_tire)[!row.names(zUMI_tire) %in% tire_prime]
-```
-
-* The number of genes unique to Janjic Prime-seq is `r length(in_prime)`
-* The number of genes unique to TIRE-seq is `r length(in_tire)`
 
 ### Session info
 ```{r}

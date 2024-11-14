@@ -29,7 +29,7 @@ library(tidyverse)
 library(scuttle)
 library(here)
 source(here::here("scripts/R/theme_publication.R"))
-theme_set(theme_Publication(base_size = 16))
+theme_set(theme_Publication())
 ```
 
 # A protocol comparison of Minibulk and TurboCapture on UHRR
@@ -43,7 +43,7 @@ I reproduced the experiment from the Prime-Seq experiment where universal human 
 
 ```{r}
 tb <- read_csv(here::here(
-  "data/Comparisons/Matrices/UHRR/downsampling_stats.csv"
+  "data/TIRE_UHRR/Matrices/downsampling_stats.csv"
 ))
 tb
 ```
@@ -74,6 +74,7 @@ plt1 <- ggplot(data=tb,
   geom_line(size=1.25) + geom_point(size=2) +
   geom_errorbar(aes(ymin=med_gene-mad_gene, ymax=med_gene+mad_gene), width=.1, size=1.25) +
   scale_colour_brewer(type="Qualitative", palette = "Dark2") +
+  ggtitle("Purified RNA") +
   xlab("Reads per sample") + ylab("Median genes detected")
 
 plt1
