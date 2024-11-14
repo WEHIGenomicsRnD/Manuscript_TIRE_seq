@@ -222,7 +222,7 @@ results <- as_tibble(day2_vs_day0)
 results$ID <- rownames(day2_vs_day0)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "Day2"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "Day0"
@@ -306,7 +306,7 @@ results <- as_tibble(day15_v_2)
 results$ID <- rownames(day15_v_2)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "Day15"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "Day2"

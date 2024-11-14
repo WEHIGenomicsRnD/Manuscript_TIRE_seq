@@ -264,7 +264,8 @@ ggplot(lcm) +
   geom_smooth(aes(y = fit_cpm, x=Timepoint_Day), method = "loess", se = FALSE, color = "red") +
   xlab("Time (days)") + ylab("logCPM") +
   theme_Publication(base_size = 22) + theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust = 1)) +
-  facet_wrap(~ID, scales = "free_y")
+  facet_wrap(~ ID, scales = "free_y", labeller = labeller(ID = label_value)) +
+  theme(strip.text = element_text(face = "bold.italic"))
 ```
 
 # Conclusion

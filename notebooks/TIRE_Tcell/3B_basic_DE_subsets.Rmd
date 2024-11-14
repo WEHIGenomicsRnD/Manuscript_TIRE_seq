@@ -242,7 +242,7 @@ results <- as_tibble(Day1_cd8.vs.cd4)
 results$ID <- rownames(Day1_cd8.vs.cd4)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "CD8"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "CD4"
@@ -320,7 +320,7 @@ results <- as_tibble(Day2_cd8.vs.cd4)
 results$ID <- rownames(Day2_cd8.vs.cd4)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "CD8"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "CD4"
@@ -392,7 +392,7 @@ results <- as_tibble(Day15_cd8.vs.cd4)
 results$ID <- rownames(Day15_cd8.vs.cd4)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "CD8"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "CD4"
@@ -438,7 +438,7 @@ results <- as_tibble(Day5_cd8.vs.cd4)
 results$ID <- rownames(Day5_cd8.vs.cd4)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "CD8"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "CD4"

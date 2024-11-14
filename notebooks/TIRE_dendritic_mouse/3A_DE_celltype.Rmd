@@ -249,7 +249,7 @@ results <- as_tibble(cDC2vcpDC)
 results$ID <- rownames(cDC2vcpDC)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "pDC"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "cDC2"
@@ -342,7 +342,7 @@ results <- as_tibble(cDC2vspDClike)
 results$ID <- rownames(cDC2vspDClike)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "cDC2"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "pre-pDC-like"
@@ -386,7 +386,7 @@ results <- as_tibble(pDCvspDClike)
 results$ID <- rownames(pDCvspDClike)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "pDC"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "pre-pDC-like"

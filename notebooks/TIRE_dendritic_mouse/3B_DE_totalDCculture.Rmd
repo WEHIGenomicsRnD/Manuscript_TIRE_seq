@@ -208,7 +208,7 @@ results <- as_tibble(ligand)
 results$ID <- rownames(ligand)
 
 # add a column of NAs
-results$DElabel <- FALSE
+results$DElabel <- "n/s"
 # if log2Foldchange > 1 or < -1 and pvalue < 0.05, set as "UP"
 results$DElabel[results$logFC > 1 & results$adj.P.Val < 0.1] <- "Flt3"
 results$DElabel[results$logFC < -1 & results$adj.P.Val < 0.1] <- "Ctrl"
