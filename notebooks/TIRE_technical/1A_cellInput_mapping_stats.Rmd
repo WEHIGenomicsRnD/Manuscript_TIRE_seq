@@ -91,9 +91,9 @@ I sequenced these libraries with the configuration
 meta_data <- read_csv(here::here(
   "metadata/S000442/DCs_Bcor_metadata_v1.1_HS.csv"))
 
-mapping <- read_tsv(here::here(
-  "data/TIRE_technical/Matrices/tire_mappingByAnnotation.txt"
-))
+# mapping <- read_tsv(here::here(
+#   "data/TIRE_technical/Matrices/tire_mappingByAnnotation.txt"
+# ))
 
 mapping <- read_tsv(here::here(
   "/stornext/Projects/GenomicsRnD/brown.d/S000514/zUMI_outputs/stats/TIRE_DCs_Mix.readspercell.txt"
@@ -121,6 +121,9 @@ Combine the tibbles together
 
 ```{r}
 tb <- rbind(prime, tire)
+write_csv(tb, here::here(
+  "data/TIRE_technical/Matrices/protocol__input_mapping.csv"
+))
 ```
 
 Visualise the outputs
@@ -128,7 +131,7 @@ Visualise the outputs
 ```{r mapping}
 ggplot(data=tb, aes(x=type, y=Percent, fill=Input)) +
   geom_boxplot(outlier.colour = "transparent") +
-  scale_colour_brewer(type="qualitative", palette = "Dark2") +
+  scale_colour_brewer(type="qualitative", palette = "Dark2") + 
   ylim(0,80) +
   xlab("Annotation") + ylab("Percent mapping")
 ```
