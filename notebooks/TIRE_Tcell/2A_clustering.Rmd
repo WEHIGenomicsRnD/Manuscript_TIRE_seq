@@ -70,10 +70,6 @@ sce <- readRDS(here::here(
    "data/TIRE_Tcell/SCEs/tcell_basic.sce.rds"
 ))
 sce_orig <- sce
-# Convert to ordered factor with numeric day values
-sce$Timepoint <- factor(sce$Timepoint,
-                       levels = str_sort(unique(sce$Timepoint), numeric = TRUE),
-                       ordered = TRUE)
 
 tb <- as_tibble(colData(sce))
 ```
@@ -197,6 +193,13 @@ Principal component analysis is a linear dimension reduction so the distances ar
 It preserves local differences so not as good at visualising non-linear differences.
 
 A PCA 1  and 2 of 38% and 16% is good for RNA-seq data.
+
+```{r}
+# Convert to ordered factor with numeric day values
+sce$Timepoint <- factor(sce$Timepoint,
+                       levels = str_sort(unique(sce$Timepoint), numeric = TRUE),
+                       ordered = TRUE)
+```
 
 ### Immune subset
 
