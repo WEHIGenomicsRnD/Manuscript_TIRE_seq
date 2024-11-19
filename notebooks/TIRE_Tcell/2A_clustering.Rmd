@@ -70,6 +70,10 @@ sce <- readRDS(here::here(
    "data/TIRE_Tcell/SCEs/tcell_basic.sce.rds"
 ))
 sce_orig <- sce
+# Convert to ordered factor with numeric day values
+sce$Timepoint <- factor(sce$Timepoint,
+                       levels = str_sort(unique(sce$Timepoint), numeric = TRUE),
+                       ordered = TRUE)
 
 tb <- as_tibble(colData(sce))
 ```

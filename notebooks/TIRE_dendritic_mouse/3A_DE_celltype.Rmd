@@ -550,13 +550,17 @@ ggplot(data=dc_counts,
 
 I don't like this either. Try a wrapped dot plot
 
-```{r wrap_box_cell, fig.asp=1}
+```{r wrap_box_cell, fig.asp=0.7}
 ggplot(data=dc_counts, 
-               aes(x=Cell_type, y=value+1, colour=gene_id)) +
+               aes(x=Cell_type, y=value+1, colour=Cell_type)) +
   geom_boxplot() + geom_jitter() +
   scale_y_continuous(trans='log10') +
   annotation_logticks(base = 10, sides = "l") +
-  scale_colour_Publication() +
+  scale_colour_manual(values = c(
+    "cDC2" = "#228B22",        # Forest green
+    "pDC" = "#4B0082",         # Dark purple
+    "pre-pDC-like" = "#FF1493"
+  )) +
   xlab("") + ylab("Expression (logcounts)") +
   facet_wrap(~ gene_id, scales = "free_y", labeller = labeller(ID = label_value)) +
   theme(strip.text = element_text(face = "bold.italic"))

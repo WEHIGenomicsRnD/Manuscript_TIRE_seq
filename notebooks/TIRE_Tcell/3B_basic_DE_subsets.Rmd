@@ -172,12 +172,12 @@ sce$TimeDay <- factor(sce$TimeDay, levels = sort(as.numeric(unique(sce$TimeDay))
 ```
 
 
-```{r immune_gene_time, fig.asp=1}
+```{r immune_gene_time, fig.asp=0.45}
 interest <- c("IL2", "IFNG", "CDK1", "MKI67")
 sce <- logNormCounts(sce)
 
 plt0 <- plotExpression(sce, features = interest, x = "TimeDay", assay.type = "logcounts",
-                       colour_by = "Subset", exprs_values = "counts") + 
+                       colour_by = "Subset", exprs_values = "counts", ncol=4) + 
   theme_Publication() + xlab("Day") +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
