@@ -504,7 +504,8 @@ What are DE genes in all conditions
 all_de <- intersect(common, row.names(cDC2vcpDC))
 ```
 
-View their expression.  
+### View their expression in a boxplot
+
 Pretty much all in the order of CDP > cDC2 > pDC
 
 Must be a kind of step-wise increase in gene expression between cell types.
@@ -513,6 +514,55 @@ Must be a kind of step-wise increase in gene expression between cell types.
 plotExpression(sce[,sce$Cell_type %in% c("cDC2", "pDC", "pre-pDC_like")], all_de, colour_by = "Cell_type", point_size=2) +
   theme_Publication(base_size = 16) 
 ```
+
+### Alternate boxplot
+
+Try a visualization with x axis as cell type
+
+```{r}
+dc_counts <- as_tibble(
+  as.matrix(counts(sce[all_de,sce$Cell_type %in% c("cDC2", "pDC", "pre-pDC_like")])), 
+  rownames = "gene_id"  # This creates a new column called 'row_id' with the rownames
+) %>% 
+  pivot_longer(-gene_id)
+
+dc_counts <- left_join(dc_counts, dge$samples,
+          by = c("name" = "Well_BC"))
+
+dc_counts$Cell_type <- recode(dc_counts$Cell_type,
+                            "pre-pDC_like" = "pre-pDC-like")
+
+dc_counts$Cell_type <- factor(dc_counts$Cell_type, 
+                        levels = c("pre-pDC-like", "pDC", "cDC2"))
+```
+
+View as a boxplot
+
+```{r box_celltype}
+ggplot(data=dc_counts, 
+               aes(x=Cell_type, y=value+1, fill=gene_id)) +
+  geom_boxplot() +
+  scale_y_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "l") +
+  scale_fill_brewer(type="Qualitative", palette = "Set2") +
+  xlab("") + ylab("Expression(logcount)")
+```
+
+I don't like this either. Try a wrapped dot plot
+
+```{r wrap_box_cell, fig.asp=1}
+ggplot(data=dc_counts, 
+               aes(x=Cell_type, y=value+1, colour=gene_id)) +
+  geom_boxplot() + geom_jitter() +
+  scale_y_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "l") +
+  scale_colour_Publication() +
+  xlab("") + ylab("Expression (logcounts)") +
+  facet_wrap(~ gene_id, scales = "free_y", labeller = labeller(ID = label_value)) +
+  theme(strip.text = element_text(face = "bold.italic"))
+```
+
+I like the wrapped boxplot
 
 # Conclusion
 

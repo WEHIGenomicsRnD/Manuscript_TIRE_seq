@@ -52,7 +52,7 @@ Investigate the similarities and differences between the different protocols.
 2 million read downsampling object is selected as this is the most Janjic et al., is sequenced. 
 
 ```{r}
-dat_prime <- here::here("data/GenomicsRnD/PrimeSeq/prime-seq.dgecounts.rds")
+dat_prime <- here::here("/stornext/Projects/GenomicsRnD/brown.d/PrimeSeq/prime-seq.dgecounts.rds")
 zUMI_prime <- readRDS(dat_prime)
 prime_counts <- zUMI_prime$umicount$exon$all
 
@@ -63,7 +63,7 @@ colnames(prime_counts) <- paste("Janjic Prime", colnames(prime_counts), sep="_")
 ### In house Prime-seq
 
 ```{r}
-dat_mb2 <- here::here("data/GenomicsRnD/S000514/zUMI_outputs/expression/MB2_UHRR_Gencode_Hs.dgecounts.rds")
+dat_mb2 <- here::here("/stornext/Projects/GenomicsRnD/brown.d/S000514/zUMI_outputs/expression/MB2_UHRR_Gencode_Hs.dgecounts.rds")
 zUMI_mb2 <- readRDS(dat_mb2)
 mb2_counts <- zUMI_mb2$umicount$exon$all
 
@@ -119,6 +119,14 @@ count_combo <- cbind(
   mb2_counts[keep_genes,],
   turbo_counts[keep_genes,]
 )
+
+tb <- Matrix::as.matrix(count_combo) |>
+  as.data.frame() |>
+  tibble::as_tibble(rownames = "Gene_ID")
+
+write_csv(tb, here::here(
+  "data/TIRE_technical/Matrices/UHRR_sample_corr.csv"
+))
 ```
 
 Make an annotation bar for the heatmap.
@@ -146,15 +154,31 @@ cor_matrix <- cor(as.matrix(count_combo))
 rownames(annotation_df) <- colnames(cor_matrix)
 row.names(cor_matrix) <- str_split(colnames(cor_matrix), pattern = "_", simplify = T)[,1]
 
+# Get Dark2 palette colors for Protocol
+protocol_colors <- RColorBrewer::brewer.pal(3, "Dark2")
+names(protocol_colors) <- c("Janjic Prime", "Modified Prime", "TIRE")
+
+# Distinct colors for Tag_count
+tag_count_colors <- c("Five prime" = "#E69F00",    # Golden yellow
+                     "Three prime" = "#56B4E9")     # Light blue
+
+# Combine into annotation colors list
+annotation_colors <- list(
+  Protocol = protocol_colors,
+  Tag_count = tag_count_colors
+)
+
 pheatmap(cor_matrix,
          color = viridis(100),
          annotation_col = annotation_df,
+         annotation_colors = annotation_colors,
          show_rownames = TRUE,
          show_colnames = FALSE,
          cluster_rows = FALSE,
          fontsize_number = 14,
-         fontsize_row = 10,)
+         fontsize_row = 10)
 ```
+
 
 ### Session info
 ```{r}

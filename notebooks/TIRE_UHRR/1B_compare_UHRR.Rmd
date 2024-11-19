@@ -66,7 +66,7 @@ In both visualizations TIRE has better efficiency but saturates quicker
 
 ### Genes detected
 
-TIE-Seq saturates quicker while minibulk v2 keeps increasing
+TIRE-Seq saturates quicker while minibulk v2 keeps increasing
 
 ```{r downsample_gene, fig.cap="Error bars are median absolute deviation"}
 plt1 <- ggplot(data=tb, 
@@ -112,13 +112,13 @@ plt3
 
 ### Genes zoom 1 million
 
-```{r}
+```{r uhrr_genes_2M}
 plt1 + xlim(0,1e6) + ylim(0,25000)
 ```
 
 ### UMIs zoom 1 million
 
-```{r}
+```{r uhrr_umi_2M}
 plt2 + xlim(1,1e6) + ylim(0,1e6)
 ```
 

@@ -95,6 +95,10 @@ mapping <- read_tsv(here::here(
   "data/TIRE_technical/Matrices/tire_mappingByAnnotation.txt"
 ))
 
+mapping <- read_tsv(here::here(
+  "/stornext/Projects/GenomicsRnD/brown.d/S000514/zUMI_outputs/stats/TIRE_DCs_Mix.readspercell.txt"
+))
+
 tire <- inner_join(mapping, meta_data,
                     by=c("RG" = "Well_BC")) %>% 
   filter(Researcher == "DB") %>% 
