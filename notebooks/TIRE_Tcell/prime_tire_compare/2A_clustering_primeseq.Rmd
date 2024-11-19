@@ -1,0 +1,255 @@
+---
+title: "Prime-seq data human T clustering"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='../figures/prime_clustering/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+suppressPackageStartupMessages({
+  library(SingleCellExperiment)
+  library(tidyverse)
+  library(scuttle)
+  library(scran)
+  library(scater)
+  library(platetools)
+  library(patchwork)
+  library(knitr)
+  library(here)
+source(here::here("scripts/R/theme_publication.R"))
+theme_set(theme_Publication())
+})
+```
+
+# Intro Human T cell clustering
+
+## Notebook aim
+
+Focus analysis only on Yasmin's samples, excluding my HEK293Ts and NIH3T3s.
+
+Yasmin has human t cells sorted for CD4 and CD8 subsets across multiple days
+I asked her to prepare a separate plate for each time point for each timepoint.
+Cells are sorted in media : 2x Qiagen TCL buffer in a 1:1 ratio
+Therefore I consolidated the timepoints into 2x 96w plates prior to RNA extraction.
+When I did the extraction I replated into a deep well plate:
+
+### Yasmin notes
+ 
+These are all samples of T cells that have or haven’t been transduced with a CAR, to look at how their profiles change over the activation/transduction/expansion period.
+There are CD4 and CD8 T cells from two donors, and everything is done in triplicate (I have attached the plate plan in case you haven’t seen it Ryan).
+ 
+* D0 – pre-activation
+* D1 – post-activation (CD3/28)
+* D2 – post-transduction
+* D5-D15 – expansion period
+
+Clarification from Ryan Cross:
+
+* Cells are thawed on day 0 and likely to look sick
+* Day 1 is T cells when they are happy and healthy = baseline.
+* Day 2 is when they are get stimulated and starting to take off .
+* Day 5 is considered the peak of stimulation
+
+## Lab notes
+
+* Making the plates [https://au-mynotebook.labarchives.com/share/Daniel_RnD_Projects/NDY4LjB8NjgxOTcvMzYwL1RyZWVOb2RlLzM4NDYzNDM1NTh8MTE4OC4w](ELN)
+* The library preparation [https://au-mynotebook.labarchives.com/share/Daniel_RnD_Projects/NDc1Ljh8NjgxOTcvMzY2L1RyZWVOb2RlLzQxMTM0Njc2MTJ8MTIwNy44](ELN)
+
+# Read data
+
+This was generated in *1A_generateSCE-human*
+
+```{r read_sce}
+sce <- readRDS(here::here(
+   "data/TIRE_Tcell/SCEs/prime_tcell_cluster.sce.rds"
+))
+sce_orig <- sce
+
+# Convert to ordered factor with numeric day values
+sce$Timepoint <- factor(sce$Timepoint,
+                       levels = str_sort(unique(sce$Timepoint), numeric = TRUE),
+                       ordered = TRUE)
+
+tb <- as_tibble(colData(sce))
+```
+
+### View highly expressed genes
+
+* TMSB4X seems like an non-specific immune gene
+* The other genes are pretty typical of RNA-Seq as highly expressed genes.
+
+```{r}
+plt1 <- plotHighestExprs(sce, n=10, colour_cells_by = "Receptor") +
+  theme_Publication()
+
+plt1
+```
+
+Library size normalization and transformation
+
+```{r, eval=T}
+set.seed(666)
+
+lib.sf <- librarySizeFactors(sce)
+sce <- computeSumFactors(sce)
+sce <- logNormCounts(sce)
+
+```
+
+## Feature selection
+
+Select the top 1000 most variable genes.
+
+```{r eval=T}
+dec.sce <- modelGeneVar(sce)
+fit.sce <- metadata(dec.sce)
+hvg.sce.var <- getTopHVGs(dec.sce, n=1000)
+sce <- runPCA(sce, subset_row=hvg.sce.var, ncomponents=30)
+
+```
+
+Visulaise the fit
+
+```{r}
+tb <- as_tibble(cbind(fit.sce$mean, fit.sce$var))
+
+colnames(tb) <- c("Mean", "Variance")
+```
+
+## Visualise mean variance
+
+There are a few number of genes above technical variation but I would not expect to see large biological differences in further analysis.
+
+```{r tech_variation, fig.cap="The coloured line represents technical variation"}
+plt2 <- ggplot(tb, 
+             aes(x = Mean, y= Variance)) + 
+  geom_point(alpha = 0.2, size=0.5) + 
+  guides(colour = guide_legend(override.aes = list(size=2, alpha=1))) +
+  xlab("Mean of log-expression") + 
+  ylab("Variance of log-expression") +
+  scale_colour_brewer(type="qualitative", palette = "Dark2") +
+  geom_function(fun = fit.sce$trend, colour = "darkgreen") +
+  theme_Publication(base_size = 16)
+
+plt2
+```
+
+## PCA plots {.tabset}
+
+Principal component analysis is a linear dimension reduction so the distances are interpretable.  
+It preserves local differences so not as good at visualising non-linear differences.
+
+A PCA 1  and 2 of 7 and 3% is not that much in RNA-Seq data.
+
+### Days post stimulation CD3 + CD28
+
+* Seems to be the major difference revealed by the PCA.
+* PCA 1 has some element of timepoint. 
+* PCA2 is less clear
+* Day 0 which is when the cells are thawed has a lot of variation which one would expect.
+
+```{r timepoint}
+plt4 <- plotPCA(sce, colour_by="Timepoint", shape_by="Donor") + 
+  guides(colour=guide_legend(ncol=2)) +
+  theme_Publication(base_size=18)
+
+plt4
+```
+
+### Immune subset
+
+Not as big a difference as I would have expected.
+
+```{r subset}
+plt5 <- plotPCA(sce, colour_by="Timepoint", shape_by="Subset", point_size=2) + 
+  guides(colour=guide_legend(ncol=2)) +
+  theme_Publication(base_size=16)
+plt5
+```
+
+### Donor
+
+Slight effect which is typical of omics data.
+
+```{r donor}
+plt3 <- plotPCA(sce, colour_by="Donor") + theme_Publication(base_size=18)
+
+plt3
+```
+
+### Genes detected
+
+At timepoint 2 days post activation, control untransduced cells have more genes detected.  
+This makes sense that the cells are most supercharged here.
+
+```{r genes}
+plt6 <- plotPCA(sce, colour_by="detected", shape_by="Receptor") + theme_Publication(base_size=18)
+plt6
+```
+
+### Variance explained
+
+Keep 20 PCs to focus on the biological variation.
+
+```{r}
+# Percentage of variance explained is tucked away in the attributes.
+percent.var <- attr(reducedDim(sce), "percentVar")
+
+plot(percent.var, xlab="PC", ylab="Variance explained (%)")
+```
+
+## UMAP {.tabset}
+
+UMAP is a non-linear dimension reduction and emphasises global structure. The distances between groups don't mean anything.
+You can say something about how tightly a group packs into a cluster.
+
+```{r}
+set.seed(100)
+sce <- runUMAP(sce, dimred = "PCA", n_dimred=20)
+```
+
+### Timepoint
+
+Very curious that day 1 and day 2 has the most dramatic differences and day 0 does not.
+
+In the PCA plots day 0 is more distinct.
+
+```{r umap_timepoint}
+plt10 <- plotReducedDim(sce, dimred="UMAP", colour_by="Timepoint",shape_by="Donor") +
+  guides(colour=guide_legend(ncol=2)) +
+  theme_Publication(base_size = 18)
+
+plt10
+```
+
+## Conclusion
+
+* Timepoint after stimulation is the major difference.
+* Minor differences with immune subset
+
+### Next steps
+
+Differential expression testing.
+
+### Session info
+```{r}
+sessionInfo()
+```
