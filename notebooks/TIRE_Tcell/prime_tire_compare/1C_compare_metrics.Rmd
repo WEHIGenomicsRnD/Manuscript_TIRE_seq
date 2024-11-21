@@ -133,13 +133,15 @@ This show the activation of transcription at day 1 and 2
 
 ```{r umi_time}
 tb <- tb %>% 
-  mutate(Day = as.numeric(str_split(pattern = "_", Timepoint, simplify = T)[,2]))
+  mutate(Day = as.numeric(str_split(pattern = "_", Timepoint, simplify = TRUE)[,2]))
 
-plt5 <- ggplot(data=tb, aes(y=sum+1, x=Day, colour=Protocol)) +
-  geom_point() + geom_smooth(se = FALSE) +
-  scale_colour_brewer(type="qualitative", palette = "Dark2") +
-  xlab("Day") + ylab("Library size (UMIs)") +
-  scale_y_continuous(trans='log10', limits = c(1e3, 1e7)) +
+plt5 <- ggplot(data = tb, aes(y = sum + 1, x = Day, colour = Protocol)) +
+  geom_point() +
+  geom_smooth(se = TRUE, method = "loess", span = 0.6) + # Adjust `span` for better fit
+  scale_colour_brewer(type = "qualitative", palette = "Dark2") +
+  xlab("Day") + 
+  ylab("Library size (UMIs)") +
+  scale_y_continuous(trans = 'log10', limits = c(1e3, 1e7)) +
   annotation_logticks(base = 10, sides = "l")
 
 plt5

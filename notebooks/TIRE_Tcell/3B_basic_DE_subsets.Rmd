@@ -46,6 +46,8 @@ theme_set(theme_Publication())
 Define heatmap function
 
 ```{r}
+library(pheatmap)
+
 create_gene_heatmap <- function(de_results_df, dge_object, font_size = 12, num_genes = 20) {
   # Subset the genes
   top_genes <- de_results_df$Symbol[1:num_genes]
@@ -59,21 +61,34 @@ create_gene_heatmap <- function(de_results_df, dge_object, font_size = 12, num_g
   )
   rownames(annotation_df) <- colnames(subset_matrix)
   
+  # Define custom colors for annotations
+  annotation_colors <- list(
+    Subset = c(CD4 = "darkgreen", CD8 = "purple"),  # Custom distinct colors for Subset
+    Donor = c(Donor_47 = "orange", Donor_64 = "blue")  # Custom distinct colors for Donor
+  )
+  
   # Reorder gene expression matrix
   ordered_samples <- order(sample_info$Subset, sample_info$Donor)
   subset_matrix <- subset_matrix[, ordered_samples]
   sample_info <- sample_info[ordered_samples, ]
   
+  # Define custom color scheme for blue-white-red
+  custom_colors <- colorRampPalette(c("blue", "white", "red"))(50)
+  
   # Create the heatmap
-  heatmap <- pheatmap(subset_matrix,
-           scale = "row",
-           cluster_rows = FALSE,
-           cluster_cols = FALSE,
-           color = viridis(50),
-           show_colnames = FALSE,
-           annotation_col = annotation_df,
-           fontsize = font_size,
-           silent = FALSE)
+  heatmap <- pheatmap(
+    subset_matrix,
+    scale = "row",
+    cluster_rows = TRUE,
+    cluster_cols = FALSE,
+    treeheight_row = 0,
+    color = custom_colors,  # Use blue-white-red color scheme
+    show_colnames = FALSE,
+    annotation_col = annotation_df,
+    annotation_colors = annotation_colors,  # Add custom annotation colors
+    fontsize = font_size,
+    silent = FALSE
+  )
 }
 ```
 
@@ -269,14 +284,21 @@ results$genelabels[results$Symbol == "FBLN7"] <- "FBLN7"
 ### Generate volcano plot
 
 ```{r day1_volcano}
-plt1 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
-  geom_point(alpha=0.33, size=1.5) +
-  geom_text_repel(size=4, colour="black") +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
-  scale_color_manual(values = c("darkblue", "darkorange", "grey"), name = "Upregulated") +
-  geom_vline(xintercept = 1, linetype="dotted") + 
-  geom_vline(xintercept = -1, linetype="dotted") +
+results$DElabel <- factor(results$DElabel, levels = c("CD8", "n/s", "CD4"))  # Adjust as per your actual labels
+
+plt1 <- ggplot(data = results, aes(x = logFC, y = -log10(adj.P.Val), colour = DElabel, label = genelabels)) + 
+  geom_point(alpha = 0.33, size = 1.5) +
+  geom_text_repel(size = 4, colour = "black") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  scale_color_manual(
+    values = c("darkorange", "grey", "darkblue"),  # Colors in the desired order
+    name = "Upregulated",
+    labels = c("CD8", "n/s", "CD4")  # Optional: Add custom labels
+  ) +
+  geom_vline(xintercept = 1, linetype = "dotted") + 
+  geom_vline(xintercept = -1, linetype = "dotted") +
   theme_Publication()
+
 
 plt1
 ```
@@ -344,13 +366,20 @@ results$genelabels[results$Symbol == "CTSL"] <- "CTSL"
 ### Generate volcano plot
 
 ```{r day2_volcano}
-plt2 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
-  geom_point(alpha=0.33, size=1.5) +
-  geom_text_repel(size=4, colour="black") +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
-  scale_color_manual(values = c("darkblue", "darkorange", "grey"), name = "Upregulated") +
-  geom_vline(xintercept = 1, linetype="dotted") + 
-  geom_vline(xintercept = -1, linetype="dotted") +
+# Reorder the levels of DElabel for proper legend ordering
+results$DElabel <- factor(results$DElabel, levels = c("CD8", "n/s", "CD4"))  # Ensure correct order
+
+plt2 <- ggplot(data = results, aes(x = logFC, y = -log10(adj.P.Val), colour = DElabel, label = genelabels)) + 
+  geom_point(alpha = 0.33, size = 1.5) +
+  geom_text_repel(size = 4, colour = "black") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  scale_color_manual(
+    values = c("darkorange", "grey", "darkblue"),  # Colors in desired order
+    name = "Upregulated",                         # Legend title
+    labels = c("CD8", "n/s", "CD4")               # Correct legend labels
+  ) +
+  geom_vline(xintercept = 1, linetype = "dotted") + 
+  geom_vline(xintercept = -1, linetype = "dotted") +
   theme_Publication()
 
 plt2
@@ -416,13 +445,19 @@ results$genelabels[results$Symbol == "XCL1"] <- "XCL1"
 ### Generate volcano plot
 
 ```{r day15_volcano}
-plt3 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
-  geom_point(alpha=0.33, size=1.5) +
-  geom_text_repel(size=4, colour="black", max.overlaps = 40) +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
-  scale_color_manual(values = c("darkblue", "darkorange", "grey"), name = "Upregulated") +
-  geom_vline(xintercept = 1, linetype="dotted") + 
-  geom_vline(xintercept = -1, linetype="dotted") +
+results$DElabel <- factor(results$DElabel, levels = c("CD8", "n/s", "CD4"))  # Ensure correct order
+
+plt3 <- ggplot(data = results, aes(x = logFC, y = -log10(adj.P.Val), colour = DElabel, label = genelabels)) + 
+  geom_point(alpha = 0.33, size = 1.5) +
+  geom_text_repel(size = 4, colour = "black") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  scale_color_manual(
+    values = c("darkorange", "grey", "darkblue"),  # Colors in desired order
+    name = "Upregulated",                         # Legend title
+    labels = c("CD8", "n/s", "CD4")               # Correct legend labels
+  ) +
+  geom_vline(xintercept = 1, linetype = "dotted") + 
+  geom_vline(xintercept = -1, linetype = "dotted") +
   theme_Publication()
 
 plt3
