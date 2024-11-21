@@ -233,17 +233,24 @@ results$genelabels[results$Symbol == "NEAT1"] <- "NEAT1"
 ### Volcano
 
 ```{r volcano_day3_day5}
-plt1 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
-  geom_point(alpha=0.33, size=1.5) +
-  geom_text_repel(size=4, colour="black") +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
-  scale_color_manual(values = c("darkblue", "darkorange", "grey"), name = "Upregulated") +
-  geom_vline(xintercept = 1, linetype="dotted") + 
-  geom_vline(xintercept = -1, linetype="dotted") +
+results$DElabel <- factor(results$DElabel, levels = c("Day5", "n/s", "Day3"))  # Adjust as per your actual labels
+
+plt1 <- ggplot(data = results, aes(x = logFC, y = -log10(adj.P.Val), colour = DElabel, label = genelabels)) + 
+  geom_point(alpha = 0.33, size = 1.5) +
+  geom_text_repel(size = 4, colour = "black") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  scale_color_manual(
+    values = c("darkorange", "grey", "darkblue"),  # Colors in the desired order
+    name = "Upregulated",
+    labels = c("Day5", "n/s", "Day3")  # Optional: Add custom labels
+  ) +
+  geom_vline(xintercept = 1, linetype = "dotted") + 
+  geom_vline(xintercept = -1, linetype = "dotted") +
   theme_Publication()
 
 plt1
 ```
+
 ### Gene set testing with camera
 
 Need to convert geneIDs from ensembl to enterez
@@ -309,17 +316,24 @@ results$genelabels[results$Symbol == "FOSL2"] <- "FOSL2"
 ### Volcano
 
 ```{r volcano_day3_day7}
-plt1 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
-  geom_point(alpha=0.33, size=1.5) +
-  geom_text_repel(size=4, colour="black") +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
-  scale_color_manual(values = c("darkblue", "grey", "darkorange"), name = "Upregulated") +
-  geom_vline(xintercept = 1, linetype="dotted") + 
-  geom_vline(xintercept = -1, linetype="dotted") +
+results$DElabel <- factor(results$DElabel, levels = c("Day7", "n/s", "Day3"))  # Adjust as per your actual labels
+
+plt2 <- ggplot(data = results, aes(x = logFC, y = -log10(adj.P.Val), colour = DElabel, label = genelabels)) + 
+  geom_point(alpha = 0.33, size = 1.5) +
+  geom_text_repel(size = 4, colour = "black") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  scale_color_manual(
+    values = c("darkorange", "grey", "darkblue"),  # Colors in the desired order
+    name = "Upregulated",
+    labels = c("Day7", "n/s", "Day3")  # Optional: Add custom labels
+  ) +
+  geom_vline(xintercept = 1, linetype = "dotted") + 
+  geom_vline(xintercept = -1, linetype = "dotted") +
   theme_Publication()
 
-plt1
+plt2
 ```
+
 ### Gene set testing with camera
 
 The things that go down are the typical cell cycle arrest stuff. 

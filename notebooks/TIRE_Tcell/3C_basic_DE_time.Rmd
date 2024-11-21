@@ -299,7 +299,7 @@ Visualize as a barplot.
 Nothing that interesting proliferation a very strong signal
 
 ```{r geneset_barchart_day2_0}
-geom_GeneSet_Barchart(cam.day2_v_0)
+geom_GeneSet_Barchart(cam.day2_v_0, num_genes = 13)
 ```
 
 ## Day 15 vs day 2

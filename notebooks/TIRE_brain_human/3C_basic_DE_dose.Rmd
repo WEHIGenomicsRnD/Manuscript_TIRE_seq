@@ -230,13 +230,19 @@ results$genelabels[results$Symbol == "SCN1A"] <- "SCN1A"
 ### Volcano
 
 ```{r volcano_100uM}
-plt1 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
-  geom_point(alpha=0.33, size=1.5) +
-  geom_text_repel(size=4, colour="black") +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
-  scale_color_manual(values = c("darkblue", "grey", "darkorange"), name = "Upregulated") +
-  geom_vline(xintercept = 1, linetype="dotted") + 
-  geom_vline(xintercept = -1, linetype="dotted") +
+results$DElabel <- factor(results$DElabel, levels = c("TMZ", "n/s", "DMSO"))  # Adjust as per your actual labels
+
+plt1 <- ggplot(data = results, aes(x = logFC, y = -log10(adj.P.Val), colour = DElabel, label = genelabels)) + 
+  geom_point(alpha = 0.33, size = 1.5) +
+  geom_text_repel(size = 4, colour = "black") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  scale_color_manual(
+    values = c("darkorange", "grey", "darkblue"),  # Colors in the desired order
+    name = "Upregulated",
+    labels = c("TMZ", "n/s", "DMSO")  # Optional: Add custom labels
+  ) +
+  geom_vline(xintercept = 1, linetype = "dotted") + 
+  geom_vline(xintercept = -1, linetype = "dotted") +
   theme_Publication()
 
 plt1
@@ -316,13 +322,19 @@ results$genelabels[results$Symbol == "AL365181.3"] <- "AL365181.3"
 ### Volcano
 
 ```{r volcano_10uM}
-plt2 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
-  geom_point(alpha=0.33, size=1.5) +
-  geom_text_repel(size=4, colour="black") +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
-  scale_color_manual(values = c("darkblue", "grey", "darkorange"), name = "Upregulated") +
-  geom_vline(xintercept = 1, linetype="dotted") + 
-  geom_vline(xintercept = -1, linetype="dotted") +
+results$DElabel <- factor(results$DElabel, levels = c("TMZ", "n/s", "DMSO"))  # Adjust as per your actual labels
+
+plt2 <- ggplot(data = results, aes(x = logFC, y = -log10(adj.P.Val), colour = DElabel, label = genelabels)) + 
+  geom_point(alpha = 0.33, size = 1.5) +
+  geom_text_repel(size = 4, colour = "black") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  scale_color_manual(
+    values = c("darkorange", "grey", "darkblue"),  # Colors in the desired order
+    name = "Upregulated",
+    labels = c("TMZ", "n/s", "DMSO")  # Optional: Add custom labels
+  ) +
+  geom_vline(xintercept = 1, linetype = "dotted") + 
+  geom_vline(xintercept = -1, linetype = "dotted") +
   theme_Publication()
 
 plt2
@@ -385,14 +397,17 @@ results$genelabels[results$Symbol == "PTP4A1"] <- "PTP4A1"
 Not many differentially expressed genes here. Likely the gene expression is pretty subtle.
 
 ```{r volcano_100_vs_10uM}
-plt2 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
-  geom_point(alpha=0.33, size=1.5) +
-  geom_text_repel(size=6, colour="black") +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
-  scale_color_manual(values = c("darkblue", "grey", "darkorange"), name = "Upregulated") +
-  geom_vline(xintercept = 1, linetype="dotted") + 
-  geom_vline(xintercept = -1, linetype="dotted") +
-  geom_hline(yintercept = 1, linetype="dotted") +
+# Update the plot
+plt2 <- ggplot(data = results, aes(x = logFC, y = -log10(adj.P.Val), colour = DElabel, label = genelabels)) + 
+  geom_point(alpha = 1, size = 1.5) +
+  geom_text_repel(size = 4, colour = "black") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  scale_color_manual(
+    values = c("darkblue", "grey"),
+    name = "Upregulated"
+  ) +
+  geom_vline(xintercept = 1, linetype = "dotted") + 
+  geom_vline(xintercept = -1, linetype = "dotted") +
   theme_Publication()
 
 plt2

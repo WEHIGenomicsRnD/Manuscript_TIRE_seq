@@ -269,6 +269,20 @@ ggplot(pca_tb, aes(x=PC1, y=PC2, colour=Day_Exposure, label=Drug)) +
   theme_Publication()
 ```
 
+View library size and Drug. Set the Drug as a a shape.
+
+Some relationship with library size but I don't think it explains everything
+
+```{r PCA_zm_lib_size}
+pca_tb <- as_tibble(reducedDim(sce))
+pca_tb$sum <- log(sce$sum+1)
+pca_tb$Drug <- sce$Drug
+
+ggplot(pca_tb, aes(x=PC1, y=PC2, colour=sum, shape=Drug)) +
+  geom_point(size=3) +
+  xlab("PC1 (35%)") + ylab("PC2 (5%)") +
+  theme_Publication()
+```
 
 Conventional visualisation
 
