@@ -248,13 +248,19 @@ All markers of proliferation in day 2
 ### Generate volcano plot
 
 ```{r day2_vs_day0_volcano}
-plt1 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
-  geom_point(alpha=0.33, size=1.5) +
-  geom_text_repel(size=4, colour="black") +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
-  scale_color_manual(values = c("darkblue", "darkorange", "grey"), name = "Upregulated") +
-  geom_vline(xintercept = 1, linetype="dotted") + 
-  geom_vline(xintercept = -1, linetype="dotted") +
+results$DElabel <- factor(results$DElabel, levels = c("Day2", "n/s", "Day0"))  # Adjust as per your actual labels
+
+plt1 <- ggplot(data = results, aes(x = logFC, y = -log10(adj.P.Val), colour = DElabel, label = genelabels)) + 
+  geom_point(alpha = 0.33, size = 1.5) +
+  geom_text_repel(size = 4, colour = "black") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  scale_color_manual(
+    values = c("darkorange", "grey", "darkblue"),  # Colors in the desired order
+    name = "Upregulated",
+    labels = c("Day2", "n/s", "Day0")  # Optional: Add custom labels
+  ) +
+  geom_vline(xintercept = 1, linetype = "dotted") + 
+  geom_vline(xintercept = -1, linetype = "dotted") +
   theme_Publication()
 
 plt1
@@ -333,13 +339,19 @@ results$genelabels[results$Symbol == "HSP90AA1"] <- "HSP90AA1"
 ### Generate volcano plot
 
 ```{r day15_v_2_volcano}
-plt2 <- ggplot(data=results, aes(x=logFC, y=-log10(adj.P.Val), colour=DElabel, label=genelabels)) + 
-  geom_point(alpha=0.33, size=1.5) +
-  geom_text_repel(size=4, colour="black") +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha=1))) +
-  scale_color_manual(values = c("darkorange", "darkblue","grey"), name = "Upregulated") +
-  geom_vline(xintercept = 1, linetype="dotted") + 
-  geom_vline(xintercept = -1, linetype="dotted") +
+results$DElabel <- factor(results$DElabel, levels = c("Day15", "n/s", "Day2"))  # Adjust as per your actual labels
+
+plt2 <- ggplot(data = results, aes(x = logFC, y = -log10(adj.P.Val), colour = DElabel, label = genelabels)) + 
+  geom_point(alpha = 0.33, size = 1.5) +
+  geom_text_repel(size = 4, colour = "black") +
+  guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+  scale_color_manual(
+    values = c("darkorange", "grey", "darkblue"),  # Colors in the desired order
+    name = "Upregulated",
+    labels = c("Day15", "n/s", "Day2")  # Optional: Add custom labels
+  ) +
+  geom_vline(xintercept = 1, linetype = "dotted") + 
+  geom_vline(xintercept = -1, linetype = "dotted") +
   theme_Publication()
 
 plt2
