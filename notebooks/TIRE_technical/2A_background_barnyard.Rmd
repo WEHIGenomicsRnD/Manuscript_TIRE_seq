@@ -176,15 +176,19 @@ percent$Subset <- recode(percent$Subset,
 Produce the visualisation
 
 ```{r violin_percent}
-p5 <- ggplot(percent, aes(y=Percent, x=Subset, colour=Protocol)) + 
+filtered_tibble <- percent %>%
+  filter((Species == "Mouse" & Subset == "Human") |
+         (Species == "Human" & Subset == "Mouse"))
+
+p5 <- ggplot(filtered_tibble, aes(y=Percent, x=Subset, colour=Protocol)) + 
     geom_jitter(width = 0.3, alpha=0.75) +
   xlab("") + 
-  ylab("Percent mapped") +
-  scale_colour_brewer(palette = "Dark2") +
-  facet_wrap(~Species)
+  ylab("Percent mapped") + ylim(0,100) +
+  scale_colour_brewer(palette = "Dark2")
 
 p5
 ```
+
 
 ### Session info
 ```{r}

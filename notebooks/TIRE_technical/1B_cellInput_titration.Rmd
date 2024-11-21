@@ -66,7 +66,7 @@ I sequenced these libraries with the configuration
 
 ```{r}
 sce <- readRDS(here::here(
-   "data/TIRE_technical/cellInputs_basic.sce.rds"))
+   "data/TIRE_technical/SCEs/cellInputs_basic.sce.rds"))
 
 tb <- as_tibble(colData(sce))
 
@@ -193,7 +193,7 @@ plt3 <- ggplot(tb,
              aes(x = Amount, y= detected, colour = Sample)) + 
   geom_point(size=2) + 
   geom_smooth(method='lm', se = FALSE) +
-  ylab("Genes detected") + 
+  ylab("Genes detected") + ylim(0, NA) +
   xlab("Cell equivalents (000s)") +
   scale_fill_brewer(palette = "Dark2")
 

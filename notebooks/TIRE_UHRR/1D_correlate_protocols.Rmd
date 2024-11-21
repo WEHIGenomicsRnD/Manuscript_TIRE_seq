@@ -30,6 +30,7 @@ library(tidyverse)
 library(scuttle)
 library(here)
 library(pheatmap)
+library(edgeR)
 library(viridis)
 source(here::here("scripts/R/theme_publication.R"))
 theme_set(theme_Publication())
@@ -119,8 +120,9 @@ count_combo <- cbind(
   mb2_counts[keep_genes,],
   turbo_counts[keep_genes,]
 )
+cpm_combo <- cpm(count_combo)
 
-tb <- Matrix::as.matrix(count_combo) |>
+tb <- Matrix::as.matrix(cpm_combo) |>
   as.data.frame() |>
   tibble::as_tibble(rownames = "Gene_ID")
 
@@ -133,10 +135,10 @@ Make an annotation bar for the heatmap.
 
 ```{r}
 annotation_df <- as.data.frame(colnames(
-  count_combo
+  cpm_combo
 ))
 
-annotation_df$Protocol <- str_split(string = annotation_df$`colnames(count_combo)`, pattern = "_", simplify = T)[,1]
+annotation_df$Protocol <- str_split(string = annotation_df$`colnames(cpm_combo)`, pattern = "_", simplify = T)[,1]
 annotation_df$Tag_count <- recode(annotation_df$Protocol,
                               "Janjic Prime" = "Three prime",
                               "Modified Prime" = "Three prime",
@@ -150,7 +152,7 @@ annotation_df <- annotation_df[,c(2:3)]
 Generate the correlation matrix then plot as a heatmap.
 
 ```{r heatmap}
-cor_matrix <- cor(as.matrix(count_combo))
+cor_matrix <- cor(as.matrix(cpm_combo))
 rownames(annotation_df) <- colnames(cor_matrix)
 row.names(cor_matrix) <- str_split(colnames(cor_matrix), pattern = "_", simplify = T)[,1]
 
@@ -178,7 +180,6 @@ pheatmap(cor_matrix,
          fontsize_number = 14,
          fontsize_row = 10)
 ```
-
 
 ### Session info
 ```{r}
