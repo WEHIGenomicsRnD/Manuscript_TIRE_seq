@@ -1,0 +1,263 @@
+---
+title: "S000424 Visualise quality control"
+author: "Daniel Brown"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+    theme: readable
+    highlight: tango 
+    df_print: paged
+    code_folding: hide
+editor_options: 
+    chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dev = "png",
+                      dpi = 300,
+                      fig.asp=0.6, 
+                      fig.path='./figures/lysis_buffer/',
+                      warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+
+library(SingleCellExperiment)
+library(tidyverse)
+library(scuttle)
+library(scater)
+library(platetools)
+library(patchwork)
+library(here)
+source(here::here("scripts/R/theme_publication.R"))
+theme_set(theme_Publication())
+```
+
+# S000424 TurboCapture-Seq compare lysis buffers
+
+## Recap
+
+Checked 16 well barcoded second strand primers. Mapping rates and background looks good. With a view to future time course experiments with suspension cells, check the compatibility of various lysis buffers.
+
+## Aim
+
+Test a variety of lysis buffers for compatibility with TurboCaptureSeq
+
+## Samples
+
+1. Rep 1 (columns 1 and 2)
+2. Rep 2 (columns 4 and 5)
+3. Rep 3 (columns 7 and 8)
+4. Rep 4 (columns 10 and 11)
+
+## Lab notes
+
+SUPERase-In RNase inhibitor was used instead of RNaseOUT.
+
+After reverse transcription, washed twice with 180 µL of 10 mM Tris before removing all remaining liquid.
+
+Piper only used 8 well barcoded primers instead of the intended 16, so instead of pairs of columns as a replicate for a total of 4 replicates, now have individual columns as replicates for a total of 8 replicates:
+
+1. Rep 1 = Column 1 = Rep1A
+2. Rep 2 = Column 2 = Rep1B
+3. Rep 3 = Column 4 = Rep2A
+4. Rep 4 = Column 5 = Rep2B
+5. Rep 5 = Column 7 = Rep3A
+6. Rep 6 = Column 8 = Rep3B
+7. Rep 7 = Column 10 = Rep4A
+8. Rep 8 = Column 11 = Rep4B
+
+Stopped after 0.8x SPRI cleanup and eluted in 20 µL.
+
+Following PCR 2, performed the 2 sided selection.
+
+Performed dsDNA HS Qubit for both PCR1 and PCR2 samples using 2 μL of sample as per standard protocol.
+
+Replicates 2, 3, 5, 6, 7, 8 were diluted to be between1 - 5 ng/μL for the D5000 Tape.
+
+## Notebook recap
+
+SCE object in generate in 1A_generateSCE_reads notebook.
+
+## Notebook aim
+
+Plot the QC metrics.
+
+## Read SCE and extract col data
+
+This is the SCE object from single end umi
+
+```{r}
+sce <- readRDS(here::here(
+   "data/TIRE_technical/SCEs/lysis_buffer.sce.rds"))
+
+tb <- as_tibble(colData(sce))
+```
+
+# Check on plate map representation {.tabset}
+
+Plot on plate map
+
+## Samples
+
+```{r plate_sample, fig.width=10,fig.height=5}
+
+p1 <- platetools::raw_map(data=tb$Sample, 
+                     well=tb$Well, 
+                     plate=96)
+
+p2 <- platetools::raw_map(data=log(tb$sum+1), 
+                     well=tb$Well, 
+                     plate=96)
+
+p1 / p2
+```
+
+## Lysis buffer
+
+```{r plate_lysis, fig.width=10,fig.height=5}
+
+p1 <- platetools::raw_map(data=tb$Buffer, 
+                     well=tb$Well, 
+                     plate=96)
+
+p2 <- platetools::raw_map(data=log(tb$sum+1), 
+                     well=tb$Well, 
+                     plate=96)
+
+p1 / p2
+```
+
+# Dot plots by lysis buffer {.tabset}
+
+Something went wrong with replicate 2B but otherwise looks reasonable. Not much difference between 
+
+* 1x TCL = cells washed in PBS and pellet resuspended in lysis buffer
+* 2x TCL = cells in media where 2 x TCL is added in equal vol to cells
+* DRS = DNA RNA shield didn't really work
+
+## Library size log
+
+```{r libSize_log, fig.cap="Library size in deduplicated UMIs"}
+plt1 <- ggplot(tb,
+             aes(x = Buffer, y= sum, colour = Sample)) + 
+  geom_point() + 
+  ylab("Library Size (UMIs)") + 
+  xlab("Lysis buffer") +
+  scale_y_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "l") +
+  scale_colour_Publication()
+
+plt1
+```
+
+## Library size natural scale
+
+```{r libSize_nat, fig.cap="Library size in deduplicated UMIs"}
+plt2 <- ggplot(tb,
+             aes(x = Buffer, y= sum, colour = Sample, label = Replicate)) + 
+  geom_text() + 
+  ylab("Library Size (UMIs)") + 
+  xlab("Lysis buffer") +  
+  scale_fill_brewer(palette = "Dark2")
+
+plt2
+```
+
+## Detected genes
+
+```{r detected_genes_p, fig.cap="Number of detected genes"}
+plt3 <- ggplot(tb,
+             aes(x = Buffer, y= detected, colour = Sample, label=Replicate)) + 
+  geom_text() + 
+  ylab("Genes detected") + 
+  xlab("Lysis buffer") +
+  scale_fill_brewer(palette = "Dark2")
+
+plt3
+```
+
+## Genes v UMIs
+
+```{r gene_umi, fig.cap="UMIs versus genes"}
+plt4 <- ggplot(tb, 
+             aes(x = detected+1, y= sum+1, colour = Buffer, label=Replicate)) + 
+  geom_text() + 
+  ylab("Library size (UMIs)") + 
+  xlab("Genes detected") +
+  scale_y_continuous(trans='log10') + scale_x_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "bl") +
+  scale_colour_brewer(palette = "Dark2")
+
+plt4
+```
+
+# Check UMIs are not saturated
+
+I ordered an inital 10nt UMI sequence in the TSO, 1,048,576 molecules. Check this is not saturated.
+
+```{r}
+human <- scater::plotHighestExprs(altExp(sce, "Human"), n=10, colour_cells_by = "Sample") + theme_Publication()
+
+human
+
+counts(altExp(sce, "Human"))["MT-RNR2",]
+```
+
+I am far from saturated sequencing here I think. Top count for MT-RNR2 is **64,226**
+
+# Barnyard plots {.tabset}
+
+Some molecular swapping but much cleaner than minibulk
+
+## Natural scale
+
+```{r barnyard_nat}
+plt5 <- ggplot(data=tb, aes(y=subsets_Human_sum, x=subsets_Mouse_sum, colour=Sample)) +
+  geom_point() +
+  scale_colour_brewer(type="qualitative", palette = "Dark2") +
+  xlab("Mouse counts") + ylab("Human Counts")
+
+plt5
+```
+
+## Natural scale well label
+
+```{r barnyard_nat_well}
+plt5 <- ggplot(data=tb, aes(y=subsets_Human_sum, x=subsets_Mouse_sum, colour=Sample, label=Buffer)) +
+  geom_text() +
+  scale_colour_brewer(type="qualitative", palette = "Dark2") +
+  xlab("Mouse counts") + ylab("Human Counts")
+
+plt5
+```
+
+## Log scale
+
+```{r barnyard_log}
+plt6 <- ggplot(data=tb, aes(y=subsets_Human_sum+1, x=subsets_Mouse_sum+1, shape=Sample, colour=Buffer)) +
+  geom_point() +
+  scale_colour_brewer(type="qualitative", palette = "Dark2") +
+  xlab("Mouse counts") + ylab("Human Counts") +
+  scale_x_continuous(trans='log10') + scale_y_continuous(trans='log10') +
+  annotation_logticks(base = 10, sides = "bl")
+
+plt6
+```
+
+# Conclusion
+
+2x DNA / RNA shield doesn’t work very well, probably salt concentration. Same for Qiagen buffer RLT
+
+* 1x TCL = cells pelleted and washed once in PBS -> pellet resuspended in 1x TC lysis buffer
+* RLT= cells pelleted and washed once in PBS -> pellet resuspended in Qiagen RLT buffer
+* 2x TCL = cells in media lysed in equal volume 2x TCL buffer
+* DRS = cells in media lysed in equal volume 2x DNA / RNA shield
+ 
+### Session info
+```{r}
+sessionInfo()
+```
