@@ -5,7 +5,9 @@ This repository contains the analysis pipeline and supporting data for the TIRE-
 TIRE-seq is a streamlined workflow that enables high-throughput RNA extraction and transcriptomic analysis for large-scale perturbation studies.
 
 ## Data
-Processed data files are available in the *data/* directory
+Processed data files are available in the *data/* directory as R Data Serialization (.rds) objects.  
+I primarly use SingleCellExperiment objects for quallity control for the many convience functions that are available.  
+Downstream differential expression testing is performed with DGEList objects.
 
 ## Metadata
 Sequencing run specific metadata is available in the metadata folder.  
