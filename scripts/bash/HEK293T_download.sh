@@ -54,7 +54,7 @@ for i in $(seq $start $end); do
     
     # Convert the downloaded SRA file to FASTQ using fasterq-dump with the specified options.
     echo "Converting $acc to FASTQ..."
-    fasterq-dump --threads 4 --split-files --split-3 --skip-technical -v -O fastq_files "$sra_dir"
+    fasterq-dump --threads 4 --origfmt --defline-qual '+' --split-files --split-3 --skip-technical -v -O fastq_files "$sra_dir"
     if [ $? -ne 0 ]; then
          echo "Error: fasterq-dump failed for $acc. Skipping..."
          continue
