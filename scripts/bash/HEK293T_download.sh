@@ -72,13 +72,6 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Concatenate all second-read FASTQ files into one combined file.
-cat fastq_files/*_2.fastq > HEK_combined_R2.fastq
-if [ $? -ne 0 ]; then
-    echo "Error: concatenation for combined_R2.fastq failed."
-    exit 1
-fi
-
 # Optionally, if there are orphan reads (from --split-3), concatenate them.
 if ls fastq_files/*_3.fastq 1> /dev/null 2>&1; then
     cat fastq_files/*_3.fastq > combined_orphan.fastq
@@ -93,12 +86,6 @@ echo "Gzipping concatenated FASTQ files..."
 gzip HEK_combined_R1.fastq
 if [ $? -ne 0 ]; then
     echo "Error: gzip failed for combined_R1.fastq."
-    exit 1
-fi
-
-gzip HEK_combined_R2.fastq
-if [ $? -ne 0 ]; then
-    echo "Error: gzip failed for combined_R2.fastq."
     exit 1
 fi
 

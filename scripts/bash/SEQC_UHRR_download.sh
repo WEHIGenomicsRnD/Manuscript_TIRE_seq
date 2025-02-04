@@ -11,6 +11,8 @@
 # Load the SRA Toolkit module if required by your system.
 module load sra-toolkit/3.1.0
 
+# GSE47774
+
 # Define the numeric range for the runs (SRR896663 to SRR896726)
 start=896663
 end=896726
