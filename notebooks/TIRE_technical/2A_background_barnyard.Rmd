@@ -180,10 +180,15 @@ filtered_tibble <- percent %>%
   filter((Species == "Mouse" & Subset == "Human") |
          (Species == "Human" & Subset == "Mouse"))
 
+filtered_tibble$Subset <- recode(filtered_tibble$Subset,
+                                 "Human" = "Mouse sample -> \nMapped human",
+                                 "Mouse" = "Human sample -> \nMapped mouse")
+
 p5 <- ggplot(filtered_tibble, aes(y=Percent, x=Subset, colour=Protocol)) + 
     geom_jitter(width = 0.3, alpha=0.75) +
   xlab("") + 
-  ylab("Percent mapped") + ylim(0,100) +
+  ylab("Percent mapped") + ylim(0,15) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 0)) +
   scale_colour_brewer(palette = "Dark2")
 
 p5

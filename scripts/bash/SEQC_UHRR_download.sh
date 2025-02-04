@@ -2,7 +2,7 @@
 #SBATCH --partition=regular
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=32G
+#SBATCH --mem=16G
 #SBATCH --time=47:00:00
 #SBATCH -e logs/sra-%j.err
 #SBATCH -o logs/sra-%j.out
@@ -34,7 +34,7 @@ for i in $(seq $start $end); do
     fi
     
     # Define the SRA file path
-    sra_file="sra_files/${acc}.sra"
+    sra_file="sra_files/${acc}/${acc}.sra"
     sra_dir="sra_files/${acc}"
     
     # Check that the SRA file exists and is non-empty
