@@ -185,7 +185,7 @@ filtered_tibble$Subset <- recode(filtered_tibble$Subset,
                                  "Mouse" = "Human sample -> \nMapped mouse")
 
 p5 <- ggplot(filtered_tibble, aes(y=Percent, x=Subset, colour=Protocol)) + 
-    geom_jitter(width = 0.3, alpha=0.75) +
+    geom_jitter(width = 0.15, alpha=0.75) +
   xlab("") + 
   ylab("Percent mapped") + ylim(0,15) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 0)) +
@@ -193,6 +193,15 @@ p5 <- ggplot(filtered_tibble, aes(y=Percent, x=Subset, colour=Protocol)) +
 
 p5
 ```
+
+Look at the number of samples in each category
+
+```{r}
+filtered_tibble %>% 
+  group_by(Subset, Protocol) %>% 
+  count()
+```
+
 
 
 ### Session info
