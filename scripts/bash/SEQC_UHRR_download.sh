@@ -47,7 +47,9 @@ for i in $(seq $start $end); do
     
     # Convert the downloaded SRA file to FASTQ using fasterq-dump with the specified options.
     echo "Converting $acc to FASTQ..."
-    fasterq-dump --threads 4 --origfmt --defline-qual '+' --split-files --split-3 --skip-technical -v -O fastq_files "$sra_dir"
+    fastq-dump --origfmt --defline-qual '+' \
+    --split-files --split-3 --skip-technical \
+    -v -O fastq_files "$sra_dir"
     if [ $? -ne 0 ]; then
          echo "Error: fasterq-dump failed for $acc. Skipping..."
          continue
@@ -104,3 +106,27 @@ if [ -f combined_orphan.fastq ]; then
 fi
 
 echo "All tasks completed successfully."
+
+
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896717/SRR896717_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896670/SRR896670_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896700/SRR896700_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896687/SRR896687_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896690/SRR896690_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896668/SRR896668_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896704/SRR896704_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896674/SRR896674_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896677/SRR896677_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896719/SRR896719_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896664/SRR896664_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896698/SRR896698_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896669/SRR896669_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896706/SRR896706_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896714/SRR896714_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896711/SRR896711_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896673/SRR896673_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896688/SRR896688_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896721/SRR896721_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896724/SRR896724_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896691/SRR896691_1.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR896/SRR896697/SRR896697_1.fastq.gz

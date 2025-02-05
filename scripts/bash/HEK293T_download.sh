@@ -2,7 +2,7 @@
 #SBATCH --partition=regular
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=16G
+#SBATCH --mem=32G
 #SBATCH --time=47:00:00
 #SBATCH -e logs/sra-%j.err
 #SBATCH -o logs/sra-%j.out
@@ -54,7 +54,9 @@ for i in $(seq $start $end); do
     
     # Convert the downloaded SRA file to FASTQ using fasterq-dump with the specified options.
     echo "Converting $acc to FASTQ..."
-    fasterq-dump --threads 4 --origfmt --defline-qual '+' --split-files --split-3 --skip-technical -v -O fastq_files "$sra_dir"
+    fastq-dump --origfmt --defline-qual '+' \
+    --split-files --split-3 --skip-technical \
+    -v -O fastq_files "$sra_dir"
     if [ $? -ne 0 ]; then
          echo "Error: fasterq-dump failed for $acc. Skipping..."
          continue
@@ -63,38 +65,13 @@ for i in $(seq $start $end); do
     echo "Finished processing $acc."
 done
 
-echo "Concatenating paired-end FASTQ files..."
-
-# Concatenate all first-read FASTQ files into one combined file.
-cat fastq_files/*_1.fastq > HEK_combined_R1.fastq
-if [ $? -ne 0 ]; then
-    echo "Error: concatenation for combined_R1.fastq failed."
-    exit 1
-fi
-
-# Optionally, if there are orphan reads (from --split-3), concatenate them.
-if ls fastq_files/*_3.fastq 1> /dev/null 2>&1; then
-    cat fastq_files/*_3.fastq > combined_orphan.fastq
-    if [ $? -ne 0 ]; then
-         echo "Error: concatenation for combined_orphan.fastq failed."
-         exit 1
-    fi
-fi
-
-echo "Gzipping concatenated FASTQ files..."
-
-gzip HEK_combined_R1.fastq
-if [ $? -ne 0 ]; then
-    echo "Error: gzip failed for combined_R1.fastq."
-    exit 1
-fi
-
-if [ -f combined_orphan.fastq ]; then
-    gzip combined_orphan.fastq
-    if [ $? -ne 0 ]; then
-         echo "Error: gzip failed for combined_orphan.fastq."
-         exit 1
-    fi
-fi
+# Gzip the fastqs
+echo "Gzipping FASTQ files..."
+pigz fastq_files/*.fastq
 
 echo "All tasks completed successfully."
+
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR820/006/SRR8200116/SRR8200116.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR820/007/SRR8200117/SRR8200117.fastq.gz
+# wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR820/008/SRR8200118/SRR8200118.fastq.gz
+
