@@ -63,14 +63,13 @@ tb$Protocol <- recode(tb$Protocol,
 Read in the TruSeq sample. Reviewer has requested the addition of TruSeq data. This was from the SEQC consortium sample A.
 
 ```{r}
-truseq <- read_csv("/home/users/allstaff/brown.d/Projects/G000278_TurboCapSeq/data/TruSeq_UHRR_public/Matrices/truSeq_UHRR_downsampling_stats.csv")
+truseq <- read_csv(here::here(
+  "data/TruSeq_HEK_Public/Matrices/truSeq_UHRR_downsampling_stats.csv"
+  ))
 truseq$Protocol <- "TruSeq"
 
 truseq$reads <- str_split(truseq$id, pattern = "_", simplify = T)[,2]
 truseq$reads <- as.numeric(truseq$reads)
-
-truseq <- truseq %>% 
-  filter(reads <= 2.5e6)
 
 keep_col <- intersect(
   colnames(tb),
@@ -163,10 +162,6 @@ plt2 + xlim(1,1e6) + ylim(0,1e6)
 * TIE-Seq saturates quicker while minibulk v2 keeps increasing
 * It is more stark here that minibulk keeps increasing while TIRE-Seq is more efficient but saturates more quickly.  
 * I checked on the the highly expressed genes and this is not a UMI saturation issue.
-
-## Next steps
-
-Count the reads with Gencode annotation next time and perform analysis again
 
 ### Session info
 ```{r}
