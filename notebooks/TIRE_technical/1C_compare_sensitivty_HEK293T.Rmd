@@ -52,6 +52,31 @@ tb <- tb %>%
   filter(reads <= 2.5e6)
 ```
 
+Read in the TruSeq sample
+
+```{r}
+truseq <- read_csv(here::here(
+  "data/TruSeq_HEK_Public//Matrices/truSeq_HEK_downsampling_stats.csv"
+))
+truseq$Protocol <- "TruSeq"
+
+truseq$reads <- str_split(truseq$id, pattern = "_", simplify = T)[,2]
+truseq$reads <- as.numeric(truseq$reads)
+
+truseq <- truseq %>% 
+  filter(reads <= 2.5e6)
+
+keep_col <- intersect(
+  colnames(tb),
+  colnames(truseq)
+)
+
+tru_tb <- rbind(
+  tb[,keep_col], truseq[,keep_col]
+)
+```
+
+
 # Visualise the results {.tabset}
 
 Prime-Seq potentially deceptive as I got processed data mapped to a gencode reference. Clear that poor mapping rate in minibulk v2 means it loses to minibulk v1.
@@ -74,6 +99,18 @@ plt1 <- ggplot(data=tb,
 plt1
 ```
 
+```{r downsample_gene_truseq, fig.cap="Error bars are median absolute deviation"}
+plt1 <- ggplot(data=tru_tb, 
+               aes(x=reads, y=med_gene, group=Protocol, color=Protocol)) +
+  geom_line(size=1.25) + geom_point(size=2) +
+  geom_errorbar(aes(ymin=med_gene-mad_gene, ymax=med_gene+mad_gene), width=.1, size=1.25) +
+  scale_colour_brewer(type="Qualitative", palette = "Dark2") +
+  ggtitle("Cell Lysate") +
+  xlab("Reads per sample") + ylab("Median genes detected")
+
+plt1
+```
+
 ## UMIs detected
 
 Prime-Seq and TIRE-seq perform the same.
@@ -84,6 +121,7 @@ plt2 <- ggplot(data=tb,
   geom_line(size=1.25) + geom_point(size=2) +
   geom_errorbar(aes(ymin=med_gene-mad_gene, ymax=med_gene+mad_gene), width=.1, size=1.25) +
   scale_colour_brewer(type="Qualitative", palette = "Dark2") +
+  ggtitle("Cell Lysate") +
   xlab("Reads per sample") + ylab("Median UMIs detected")
 
 plt2

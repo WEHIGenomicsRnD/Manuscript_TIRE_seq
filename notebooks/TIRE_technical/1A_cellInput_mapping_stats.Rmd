@@ -136,6 +136,45 @@ ggplot(data=tb, aes(x=type, y=Percent, fill=Input)) +
   xlab("Annotation") + ylab("Percent mapping")
 ```
 
+# TruSeq
+
+```{r}
+mapping <- read_tsv(here::here(
+      "/vast/projects/G000448_Protein_Design/BulkRNA_Manuscript/Public/Barbash_2019_HEK/stats/TIRE_HEK_public_Hs.readspercell.txt")) %>% 
+  group_by(RG) %>% 
+  mutate(
+    Reads = sum(N),
+    Percent = (N / Reads) * 100
+    )
+mapping$Input <- "TruSeq Purified RNA"
+mapping$Protocol <- "TruSeq"
+
+tb_truseq <- rbind(tb,
+                   mapping)
+
+write_csv(tb_truseq, here::here(
+  "data/TIRE_technical/Matrices/protocol_input_mapping.csv"
+))
+```
+
+Visualise the TruSeq mapping
+
+```{r mapping_truseq}
+ggplot(data=tb_truseq, aes(x=type, y=Percent, fill=Input)) +
+  geom_boxplot(outlier.colour = "transparent") +
+  scale_fill_manual(
+    values = c(
+      "Prime Intact Cells"  = "darkred",
+      "Prime Lysate" = "#D95F02",
+      "Prime Purified RNA"  = "#1B9E77",
+      "TruSeq Purified RNA" = "#E7298A",
+      "TIRE Lysate" = "#7570B3"
+    )
+  ) +
+  ylim(0,80) +
+  xlab("Annotation") + ylab("Percent mapping")
+```
+
 # Conclusion
 
 * Some elevated intergenic mapping compared to purified RNA.
