@@ -60,6 +60,28 @@ tb$Protocol <- recode(tb$Protocol,
 )
 ```
 
+Read in the TruSeq sample. Reviewer has requested the addition of TruSeq data. This was from the SEQC consortium sample A.
+
+```{r}
+truseq <- read_csv("/home/users/allstaff/brown.d/Projects/G000278_TurboCapSeq/data/TruSeq_UHRR_public/Matrices/truSeq_UHRR_downsampling_stats.csv")
+truseq$Protocol <- "TruSeq"
+
+truseq$reads <- str_split(truseq$id, pattern = "_", simplify = T)[,2]
+truseq$reads <- as.numeric(truseq$reads)
+
+truseq <- truseq %>% 
+  filter(reads <= 2.5e6)
+
+keep_col <- intersect(
+  colnames(tb),
+  colnames(truseq)
+)
+
+tru_tb <- rbind(
+  tb[,keep_col], truseq[,keep_col]
+)
+```
+
 ## Visualise the results {.tabset}
 
 In both visualizations TIRE has better efficiency but saturates quicker
@@ -70,6 +92,20 @@ TIRE-Seq saturates quicker while minibulk v2 keeps increasing
 
 ```{r downsample_gene, fig.cap="Error bars are median absolute deviation"}
 plt1 <- ggplot(data=tb, 
+               aes(x=reads, y=med_gene, group=Protocol, color=Protocol)) +
+  geom_line(size=1.25) + geom_point(size=2) +
+  geom_errorbar(aes(ymin=med_gene-mad_gene, ymax=med_gene+mad_gene), width=.1, size=1.25) +
+  scale_colour_brewer(type="Qualitative", palette = "Dark2") +
+  ggtitle("Purified RNA") +
+  xlab("Reads per sample") + ylab("Median genes detected")
+
+plt1
+```
+
+Visualise the TruSeq data on the saturation plot.
+
+```{r downsample_gene_truseq, fig.cap="Error bars are median absolute deviation"}
+plt1 <- ggplot(data=tru_tb, 
                aes(x=reads, y=med_gene, group=Protocol, color=Protocol)) +
   geom_line(size=1.25) + geom_point(size=2) +
   geom_errorbar(aes(ymin=med_gene-mad_gene, ymax=med_gene+mad_gene), width=.1, size=1.25) +

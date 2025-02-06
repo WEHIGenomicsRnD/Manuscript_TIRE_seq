@@ -52,7 +52,7 @@ tb <- tb %>%
   filter(reads <= 2.5e6)
 ```
 
-Read in the TruSeq sample
+Read in the TruSeq sample. Reviewer has requested the addition of TruSeq data. This is from Barbash 2019 iScience.
 
 ```{r}
 truseq <- read_csv(here::here(
@@ -75,7 +75,6 @@ tru_tb <- rbind(
   tb[,keep_col], truseq[,keep_col]
 )
 ```
-
 
 # Visualise the results {.tabset}
 
