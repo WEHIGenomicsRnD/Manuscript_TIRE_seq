@@ -90,9 +90,28 @@ turbo_counts <- turbo_counts[,colSums2(turbo_counts) > 5000]
 colnames(turbo_counts) <- paste("TIRE", colnames(turbo_counts), sep="_")
 ```
 
+### Gold standard TruSeq RNA
+
+This was requested by reviewer 2.
+
+```{r truseq}
+dat_truseq <- "/vast/projects/G000448_Protein_Design/BulkRNA_Manuscript/Public/UHRR/expression/TruSeq_concat_UHRR_public_Hs.dgecounts.rds"
+zUMI_truseq <- readRDS(dat_truseq)
+truseq_counts <- zUMI_truseq$readcount$exon$all
+
+# Keep the UHRR added colums only
+truseq_counts <- truseq_counts[,colSums2(truseq_counts) > 5000]
+
+colnames(truseq_counts) <- paste("TruSeq", colnames(truseq_counts), sep="_")
+```
+
 # Correlate samples
 
 Need to subset for genes that are in common with all protocols. Then I am able to combine them all together into a single count matrix.
+
+# UP TO HERE
+
+Consider removing the ERCCs as mine were really old.
 
 ```{r}
 keep_genes <- intersect(
@@ -103,6 +122,11 @@ keep_genes <- intersect(
 keep_genes <- intersect(
   keep_genes,
   row.names(turbo_counts)
+)
+
+keep_genes <- intersect(
+  keep_genes,
+  row.names(truseq_counts)
 )
 
 diff_prime_turbo <- setdiff(
@@ -118,7 +142,8 @@ diff_mb2turbo <- setdiff(
 count_combo <- cbind(
   prime_counts[keep_genes,],
   mb2_counts[keep_genes,],
-  turbo_counts[keep_genes,]
+  turbo_counts[keep_genes,],
+  truseq_counts[keep_genes,]
 )
 cpm_combo <- cpm(count_combo)
 
@@ -142,7 +167,8 @@ annotation_df$Protocol <- str_split(string = annotation_df$`colnames(cpm_combo)`
 annotation_df$Tag_count <- recode(annotation_df$Protocol,
                               "Janjic Prime" = "Three prime",
                               "Modified Prime" = "Three prime",
-                              "TIRE" = "Five prime")
+                              "TIRE" = "Five prime",
+                              "TruSeq" = "Full length")
 
 annotation_df <- annotation_df[,c(2:3)]
 ```
@@ -157,12 +183,13 @@ rownames(annotation_df) <- colnames(cor_matrix)
 row.names(cor_matrix) <- str_split(colnames(cor_matrix), pattern = "_", simplify = T)[,1]
 
 # Get Dark2 palette colors for Protocol
-protocol_colors <- RColorBrewer::brewer.pal(3, "Dark2")
-names(protocol_colors) <- c("Janjic Prime", "Modified Prime", "TIRE")
+protocol_colors <- RColorBrewer::brewer.pal(4, "Dark2")
+names(protocol_colors) <- c("Janjic Prime", "Modified Prime", "TIRE", "TruSeq")
 
 # Distinct colors for Tag_count
 tag_count_colors <- c("Five prime" = "#E69F00",    # Golden yellow
-                     "Three prime" = "#56B4E9")     # Light blue
+                     "Three prime" = "#56B4E9",    # Light blue
+                     "Full length" = "#90EE90")     
 
 # Combine into annotation colors list
 annotation_colors <- list(
@@ -178,8 +205,24 @@ pheatmap(cor_matrix,
          show_colnames = FALSE,
          cluster_rows = FALSE,
          fontsize_number = 14,
-         fontsize_row = 10)
+         fontsize_row = 8)
 ```
+
+Have a closer look specifically at the correlation between TruSeq and TIRE-seq
+
+```{r}
+summary(cor_matrix["TruSeq",c(17:24)])
+```
+
+Compare against the correlation between TruSeq and Janijic Prime
+
+```{r}
+summary(cor_matrix["TruSeq",c(1:8)])
+```
+
+* Mean of TruSeq and TIRE-Seq = 0.704
+* Mean of TruSeq and Janjic Prime = 0.680
+
 
 ### Session info
 ```{r}
