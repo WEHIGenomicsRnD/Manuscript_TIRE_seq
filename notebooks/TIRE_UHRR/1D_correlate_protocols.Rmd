@@ -109,10 +109,6 @@ colnames(truseq_counts) <- paste("TruSeq", colnames(truseq_counts), sep="_")
 
 Need to subset for genes that are in common with all protocols. Then I am able to combine them all together into a single count matrix.
 
-# UP TO HERE
-
-Consider removing the ERCCs as mine were really old.
-
 ```{r}
 keep_genes <- intersect(
   row.names(prime_counts),
@@ -204,8 +200,10 @@ pheatmap(cor_matrix,
          show_rownames = TRUE,
          show_colnames = FALSE,
          cluster_rows = FALSE,
-         fontsize_number = 14,
-         fontsize_row = 8)
+         clustering_distance_cols = "euclidean",
+         clustering_method = "single",
+         fontsize_number = 16,
+         fontsize_row = 9)
 ```
 
 Have a closer look specifically at the correlation between TruSeq and TIRE-seq
@@ -220,9 +218,15 @@ Compare against the correlation between TruSeq and Janijic Prime
 summary(cor_matrix["TruSeq",c(1:8)])
 ```
 
+Compare against the correlation between TruSeq and In-house Prime
+
+```{r}
+summary(cor_matrix["TruSeq",c(9:16)])
+```
+
 * Mean of TruSeq and TIRE-Seq = 0.704
 * Mean of TruSeq and Janjic Prime = 0.680
-
+* Mean of TruSeq and In-house Prime = 0.605
 
 ### Session info
 ```{r}
